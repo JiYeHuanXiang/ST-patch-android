@@ -1,0 +1,13 @@
+## This file is a template for local.properties.
+## Copy this file to local.properties and edit the SDK path to match your environment.
+##
+##   Windows:  cp local.properties.example local.properties
+##   Linux/Mac: cp local.properties.example local.properties
+##
+## local.properties is git-ignored and should NEVER be committed.
+
+# Location of the Android SDK. Examples:
+# Windows:  sdk.dir=C\:\\Users\\YourName\\AppData\\Local\\Android\\Sdk
+# macOS:    sdk.dir=/Users/YourName/Library/Android/sdk
+# Linux:    sdk.dir=/home/YourName/Android/Sdk
+sdk.dir=YOUR_ANDROID_SDK_PATH_HERE

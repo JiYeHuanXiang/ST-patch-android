@@ -1,0 +1,76 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.st.patch'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.st.patch"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.18.0-patch-1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        // 生产环境请替换为正式签名文件
+        // 生成方法：keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias stpatch
+        debug {
+            // 使用默认 debug 签名
+        }
+        create("release") {
+            // 正式发布时取消注释并填写签名信息
+            // storeFile = file("release.jks")
+            // storePassword = "your_store_password"
+            // keyAlias = "stpatch"
+            // keyPassword = "your_key_password"
+            // 未配置时使用 debug 签名（仅用于测试，不可用于正式发布）
+            storeFile = android.signingConfigs.getByName("debug").storeFile
+            storePassword = android.signingConfigs.getByName("debug").storePassword
+            keyAlias = android.signingConfigs.getByName("debug").keyAlias
+            keyPassword = android.signingConfigs.getByName("debug").keyPassword
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+    buildFeatures {
+        viewBinding true
+    }
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    // AndroidX（替代旧的 com.android.support）
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.navigation:navigation-fragment-ktx:2.7.7'
+    implementation 'androidx.navigation:navigation-ui-ktx:2.7.7'
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}

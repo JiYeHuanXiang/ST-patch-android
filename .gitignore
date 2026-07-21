@@ -1,0 +1,68 @@
+# ============================================================
+# Android (ST Patch) 独立仓库 — .gitignore
+# ============================================================
+
+# --- Gradle 构建产物 ---
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+*.ap_
+
+# --- IDE / 编辑器 ---
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# --- 本地配置（含 SDK 路径） ---
+local.properties
+*.env
+
+# --- 签名密钥 ---
+*.jks
+*.keystore
+*.p12
+*.key
+
+# --- 从 SillyTavern 主项目复制的 assets（由 prepare-assets 脚本生成） ---
+app/src/main/assets/sillytavern/
+
+# --- Node.js 二进制（需手动准备，体积大） ---
+# 如果需要提交，请移除下面这行
+app/src/main/jniLibs/
+
+# --- 大体积归档 ---
+*.7z
+*.zip
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+
+# --- 运行时日志 ---
+*.log
+log.txt
+
+# --- 临时文件 ---
+*.tmp
+*.bak
+*~
+# Windows 快捷方式
+*.lnk
+
+# --- 构建输出（release 目录） ---
+app/release/
+
+# --- AI 辅助工具元数据 ---
+.gemini/
+.lingma/
+.reasonix/
+.aider*
+
+# --- 测试结果 ---
+test-results/

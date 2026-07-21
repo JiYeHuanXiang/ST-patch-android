@@ -1,0 +1,8 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- 夜间模式变体：在深色基础上进一步降低亮度 -->
+    <style name="Theme.STPatch" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/st_background_dark</item>
+        <item name="colorPrimaryDark">#FF0A0A0D</item>
+        <item name="colorAccent">@color/st_accent</item>
+    </style>
+</resources>
