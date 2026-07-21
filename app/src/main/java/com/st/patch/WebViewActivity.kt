@@ -1,12 +1,17 @@
 ﻿package com.st.patch
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.AlertDialog
+import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
+import android.util.Base64
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
@@ -14,6 +19,7 @@ import android.view.WindowInsetsController
 import android.webkit.*
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -70,6 +76,9 @@ class WebViewActivity : AppCompatActivity() {
         configureWebViewClient()
         configureWebChromeClient()
         configureDownloadListener()
+
+        // 注册 JavaScript 桥接，用于文件导出
+        webView.addJavascriptInterface(DownloadInterface(this), "AndroidDownload")
 
         // 返回键处理：优先 WebView 历史后退，无历史时确认退出
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -166,12 +175,10 @@ class WebViewActivity : AppCompatActivity() {
                 progressBar.visibility = View.GONE
                 loadingText.visibility = View.GONE
 
-                // 注入 viewport 修复 JS：使用 visualViewport API 修复键盘弹出时
-                // CSS 100vh/100dvh 不更新的问题。SillyTavern 的 style.css 中
-                // body { height: 100vh; height: 100dvh; } 在 WebView 中键盘弹出时不会自动调整，
-                // 导致输入框被输入法覆盖。此脚本覆盖 body 高度为实际可视高度。
+                // 注入 viewport 修复 JS + 文件导出桥接 JS
                 view?.evaluateJavascript("""
                     (function() {
+                        // --- viewport 修复 ---
                         var updateHeight = function() {
                             var h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
                             document.documentElement.style.setProperty('--doc-height', h + 'px');
@@ -183,6 +190,51 @@ class WebViewActivity : AppCompatActivity() {
                             window.visualViewport.addEventListener('scroll', updateHeight);
                         }
                         window.addEventListener('resize', updateHeight);
+
+                        // --- 文件导出桥接 ---
+                        if (typeof window.AndroidDownload !== 'undefined') {
+                            // 辅助：将 Blob 通过桥接保存
+                            var saveBlobViaBridge = function(blob, fileName) {
+                                var reader = new FileReader();
+                                reader.onload = function() {
+                                    var dataUrl = reader.result;
+                                    var base64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
+                                    window.AndroidDownload.saveFile(base64, fileName, blob.type || 'application/octet-stream');
+                                };
+                                reader.readAsDataURL(blob);
+                            };
+
+                            // 重写 download 函数（聊天导出、预设导出等场景）
+                            window.download = function(content, fileName, contentType) {
+                                var blob = new Blob([content], { type: contentType || 'application/octet-stream' });
+                                saveBlobViaBridge(blob, fileName);
+                            };
+
+                            // 拦截 Blob URL 下载（角色卡导出场景：fetch blob → createObjectURL → <a>.click()）
+                            var _blobMap = {};
+                            var _createObjectURL = URL.createObjectURL;
+                            URL.createObjectURL = function(blob) {
+                                var url = _createObjectURL.call(URL, blob);
+                                _blobMap[url] = blob;
+                                return url;
+                            };
+                            var _revokeObjectURL = URL.revokeObjectURL;
+                            URL.revokeObjectURL = function(url) {
+                                delete _blobMap[url];
+                                _revokeObjectURL.call(URL, url);
+                            };
+                            var _anchorClick = HTMLAnchorElement.prototype.click;
+                            HTMLAnchorElement.prototype.click = function() {
+                                if (this.href && this.href.indexOf('blob:') === 0 && this.download) {
+                                    var blob = _blobMap[this.href];
+                                    if (blob) {
+                                        saveBlobViaBridge(blob, this.download);
+                                        return;
+                                    }
+                                }
+                                _anchorClick.call(this);
+                            };
+                        }
                     })();
                 """.trimIndent(), null)
             }
@@ -360,6 +412,87 @@ class WebViewActivity : AppCompatActivity() {
                 or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             )
+        }
+    }
+
+    /**
+     * JavaScript 桥接接口：将文件保存到设备 Downloads 目录。
+     * 前端通过 window.AndroidDownload.saveFile(base64, fileName, mimeType) 调用。
+     */
+    inner class DownloadInterface(private val activity: Activity) {
+
+        @JavascriptInterface
+        fun saveFile(base64Data: String, fileName: String, mimeType: String) {
+            try {
+                val decodedBytes = Base64.decode(base64Data, Base64.DEFAULT)
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // Android 10+：使用 MediaStore
+                    saveViaMediaStore(decodedBytes, fileName, mimeType)
+                } else {
+                    // Android 9：使用传统文件写入
+                    saveViaLegacyFile(decodedBytes, fileName, mimeType)
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    Toast.makeText(activity, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
+        private fun saveViaMediaStore(data: ByteArray, fileName: String, mimeType: String) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+
+            val resolver = activity.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw Exception("无法创建下载文件")
+
+            resolver.openOutputStream(uri)?.use { outputStream ->
+                outputStream.write(data)
+            } ?: throw Exception("无法写入文件")
+
+            // 标记写入完成
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+
+            activity.runOnUiThread {
+                Toast.makeText(activity, "已导出: $fileName", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        @Suppress("DEPRECATION")
+        private fun saveViaLegacyFile(data: ByteArray, fileName: String, mimeType: String) {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!downloadsDir.exists()) {
+                downloadsDir.mkdirs()
+            }
+
+            // 处理重名：追加 (1), (2) 等
+            var destFile = File(downloadsDir, fileName)
+            var counter = 1
+            val dotIndex = fileName.lastIndexOf('.')
+            val baseName = if (dotIndex > 0) fileName.substring(0, dotIndex) else fileName
+            val ext = if (dotIndex > 0) fileName.substring(dotIndex) else ""
+            while (destFile.exists()) {
+                destFile = File(downloadsDir, "${baseName} (${counter})${ext}")
+                counter++
+            }
+
+            destFile.writeBytes(data)
+
+            // 通知系统扫描文件
+            val intent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
+            intent.data = Uri.fromFile(destFile)
+            activity.sendBroadcast(intent)
+
+            activity.runOnUiThread {
+                Toast.makeText(activity, "已导出: ${destFile.name}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 

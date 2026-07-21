@@ -28,6 +28,7 @@ local.properties
 *.keystore
 *.p12
 *.key
+keystore.properties
 
 # --- 从 SillyTavern 主项目复制的 assets（由 prepare-assets 脚本生成） ---
 app/src/main/assets/sillytavern/
