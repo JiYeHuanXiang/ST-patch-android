@@ -1,39 +1,62 @@
 ﻿package com.st.patch
 
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import kotlin.concurrent.thread
 
 /**
- * 启动页：显示 Logo + 进度状态，自动编排 Node 启动 → WebView 加载流程。
+ * 启动页：显示 Logo + 进度状态 + 实时日志，自动编排 Node 启动 → WebView 加载流程。
  *
  * 流程：
- * 1. 显示 Logo
+ * 1. 显示 Logo + 进度条 + 实时日志窗口
  * 2. 启动 NodeService（解压资源 + 启动 Node）
- * 3. 监听 SERVER_READY 广播
- * 4. 启动 WebViewActivity
+ * 3. 后台定时刷新日志窗口，让用户看到解压/编译/启动全过程
+ * 4. 监听 SERVER_READY 广播 → 启动 WebViewActivity
  */
 class SplashActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "SplashActivity"
+        private const val LOG_REFRESH_MS = 300L
     }
 
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
+    private lateinit var retryButton: Button
+    private lateinit var logTextView: TextView
+    private lateinit var logScrollView: ScrollView
+    private lateinit var copyLogButton: Button
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var logRefreshActive = true
+
+    private val logRefresher = object : Runnable {
+        override fun run() {
+            if (logRefreshActive && !isFinishing && !isDestroyed) {
+                updateLogText()
+                mainHandler.postDelayed(this, LOG_REFRESH_MS)
+            }
+        }
+    }
 
     private val serverReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -41,12 +64,22 @@ class SplashActivity : AppCompatActivity() {
                 NodeService.BROADCAST_SERVER_READY -> {
                     runOnUiThread {
                         statusText.text = "服务器已就绪，正在打开..."
+                        // 停止日志刷新
+                        logRefreshActive = false
+                        mainHandler.removeCallbacks(logRefresher)
+                        updateLogText()
                         openWebView()
                     }
                 }
                 NodeService.BROADCAST_SERVER_FAILED -> {
                     runOnUiThread {
-                        statusText.text = "服务器启动失败，请查看日志"
+                        statusText.text = "服务器启动失败\n${NodeService.lastErrorPublic}"
+                        progressBar.visibility = View.GONE
+                        retryButton.visibility = View.VISIBLE
+                        // 停止日志刷新，显示最终日志
+                        logRefreshActive = false
+                        mainHandler.removeCallbacks(logRefresher)
+                        updateLogText()
                     }
                 }
             }
@@ -65,6 +98,26 @@ class SplashActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.statusText)
         progressBar = findViewById(R.id.splashProgressBar)
+        retryButton = findViewById(R.id.retryButton)
+        logTextView = findViewById(R.id.logTextView)
+        logScrollView = findViewById(R.id.logScrollView)
+        copyLogButton = findViewById(R.id.copyLogButton)
+
+        retryButton.setOnClickListener {
+            progressBar.visibility = View.VISIBLE
+            retryButton.visibility = View.GONE
+            statusText.text = "正在重启 SillyTavern..."
+            logRefreshActive = true
+            mainHandler.post(logRefresher)
+            startNodeService()
+        }
+
+        copyLogButton.setOnClickListener {
+            val logText = getFormattedLog()
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("SillyTavern Log", logText))
+            Toast.makeText(this, "日志已复制到剪贴板", Toast.LENGTH_SHORT).show()
+        }
 
         // 注册广播接收器（Android 14+ 需要显式 flag）
         val filter = IntentFilter().apply {
@@ -85,7 +138,16 @@ class SplashActivity : AppCompatActivity() {
 
         // 启动 NodeService
         statusText.text = "正在启动 SillyTavern..."
+        startNodeService()
 
+        // 启动日志实时刷新
+        mainHandler.post(logRefresher)
+
+        // 兜底：HTTP 轮询，防止广播丢失
+        startPolling()
+    }
+
+    private fun startNodeService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -107,9 +169,6 @@ class SplashActivity : AppCompatActivity() {
         } else {
             startService(serviceIntent)
         }
-
-        // 兜底：HTTP 轮询，防止广播丢失
-        startPolling()
     }
 
     private fun startPolling() {
@@ -136,6 +195,29 @@ class SplashActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateLogText() {
+        val log = getFormattedLog()
+        logTextView.text = log
+        // 自动滚动到底部，显示最新输出
+        logScrollView.post {
+            logScrollView.fullScroll(View.FOCUS_DOWN)
+        }
+    }
+
+    private fun getFormattedLog(): String {
+        val sb = StringBuilder()
+        synchronized(NodeService.nodeLogLines) {
+            for (line in NodeService.nodeLogLines) {
+                sb.appendLine(line)
+            }
+        }
+        return if (sb.isEmpty()) {
+            "等待 Node 启动..."
+        } else {
+            sb.toString().trimEnd()
+        }
+    }
+
     private fun openWebView() {
         val intent = Intent(this, WebViewActivity::class.java).apply {
             putExtra(WebViewActivity.EXTRA_URL, "http://127.0.0.1:8000")
@@ -146,6 +228,8 @@ class SplashActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        logRefreshActive = false
+        mainHandler.removeCallbacks(logRefresher)
         try {
             unregisterReceiver(serverReceiver)
         } catch (e: Exception) {

@@ -40,11 +40,18 @@ class NodeService : Service() {
 
         var isRunning = false
             private set
+
+        /** 供 SplashActivity 显示的最近错误信息 */
+        var lastErrorPublic = ""
+            private set
+
+        /** 最近 200 行 Node 输出日志，供 UI 查阅/复制 */
+        val nodeLogLines = java.util.Collections.synchronizedList(ArrayList<String>(256))
+        private const val LOG_MAX_LINES = 200
     }
 
     private var nodeProcess: Process? = null
     private var appVersion: String = "1.0"
-    private var lastError: String = ""
 
     override fun onCreate() {
         super.onCreate()
@@ -88,9 +95,9 @@ class NodeService : Service() {
                 val arch = Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"
                 Log.i(TAG, "Device ABI: $arch")
                 if (!arch.contains("arm64", true) && !arch.contains("aarch64", true)) {
-                    lastError = "不支持的CPU架构: $arch\n需要 arm64-v8a 设备"
-                    Log.e(TAG, lastError)
-                    updateNotification(lastError)
+                    lastErrorPublic = "不支持的CPU架构: $arch\n需要 arm64-v8a 设备"
+                    Log.e(TAG, lastErrorPublic)
+                    updateNotification(lastErrorPublic)
                     sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
                     return@thread
                 }
@@ -115,9 +122,9 @@ class NodeService : Service() {
                 val nativeLibDir = File(applicationInfo.nativeLibraryDir)
                 val nodeBin = File(nativeLibDir, "libnode.so")
                 if (!nodeBin.exists()) {
-                    lastError = "node 二进制未找到: ${nodeBin.absolutePath}"
-                    Log.e(TAG, lastError)
-                    updateNotification(lastError)
+                    lastErrorPublic = "node 二进制未找到: ${nodeBin.absolutePath}"
+                    Log.e(TAG, lastErrorPublic)
+                    updateNotification(lastErrorPublic)
                     sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
                     return@thread
                 }
@@ -132,7 +139,11 @@ class NodeService : Service() {
                 }
                 Log.i(TAG, "Node binary ready: ${nodeBin.absolutePath}")
 
-                // 2. 启动 Node
+                // 2. 修正已有的 config.yaml（首次启动时还不存在，由 Node 生成；
+                //    此处处理非首次启动场景，防御性地保证 browserLaunch 关闭）
+                sanitizeConfig(File(filesDir, "sillytavern/app/config.yaml"))
+
+                // 3. 启动 Node
                 updateNotification("正在启动服务器...")
                 val nodePath = nodeBin.absolutePath
                 val serverPath = File(filesDir, "sillytavern/app/server.js").absolutePath
@@ -146,31 +157,36 @@ class NodeService : Service() {
                 pb.environment()["HOME"] = filesDir
                 pb.environment()["NODE_ENV"] = "production"
                 pb.environment()["LD_LIBRARY_PATH"] = soDir.absolutePath
+                // Android 使用内置 WebView，无需 Node 端自动打开浏览器。
+                // 双保险 ① 环境变量覆盖 getConfigValue（首次启动 config.yaml 不存在时仍生效）
+                pb.environment()["SILLYTAVERN_BROWSERLAUNCH_ENABLED"] = "false"
                 pb.redirectErrorStream(true)
 
                 nodeProcess = pb.start()
                 readProcessOutput(nodeProcess!!)
 
-                // 3. 轮询等待
+                // 4. 轮询等待
                 updateNotification("等待服务器就绪...")
                 val ready = pollServerReady()
 
                 if (ready) {
                     isRunning = true
                     Log.i(TAG, "Server ready")
+                    // 服务器就绪后，修正首次启动生成的 config.yaml（防御纵深）
+                    sanitizeConfig(File(filesDir, "sillytavern/app/config.yaml"))
                     updateNotification("SillyTavern 正在运行")
                     sendBroadcast(Intent(BROADCAST_SERVER_READY))
                 } else {
-                    lastError = "服务器启动超时 (60秒)"
-                    Log.e(TAG, lastError)
-                    updateNotification(lastError)
+                    lastErrorPublic = "服务器启动超时 (60秒)"
+                    Log.e(TAG, lastErrorPublic)
+                    updateNotification(lastErrorPublic)
                     sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
                 }
 
             } catch (e: Exception) {
-                lastError = "启动失败: ${e.message}"
+                lastErrorPublic = "启动失败: ${e.message}"
                 Log.e(TAG, "Failed to start node", e)
-                updateNotification(lastError)
+                updateNotification(lastErrorPublic)
                 sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
             }
         }
@@ -183,6 +199,13 @@ class NodeService : Service() {
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
                     Log.i(TAG, "[node] $line")
+                    // 存入环形缓冲区，供 UI 查阅
+                    synchronized(nodeLogLines) {
+                        if (nodeLogLines.size >= LOG_MAX_LINES) {
+                            nodeLogLines.removeAt(0)
+                        }
+                        nodeLogLines.add(line ?: "")
+                    }
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "output reader exited: ${e.message}")
@@ -193,19 +216,8 @@ class NodeService : Service() {
     private fun pollServerReady(): Boolean {
         var wasReady = false
         for (attempt in 1..POLL_MAX_ATTEMPTS) {
-            // 检查进程是否还活着
-            if (nodeProcess != null && !nodeProcess!!.isAlive) {
-                val exitCode = nodeProcess!!.exitValue()
-                Log.e(TAG, "Node process exited with code $exitCode")
-                // 如果曾 HTTP 成功过，进程退出也视为成功（xdg-open 等无害崩溃）
-                if (wasReady) {
-                    Log.i(TAG, "Server was ready before exit, treating as success")
-                    return true
-                }
-                lastError = "Node 进程异常退出 (code $exitCode)"
-                return false
-            }
-
+            // 优先尝试 HTTP 探测：服务器可能在 ready 后因无害原因（如 xdg-open）
+            // 瞬间退出，先查端口能避免误判为失败
             try {
                 val conn = URL(SERVER_URL).openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
@@ -220,6 +232,18 @@ class NodeService : Service() {
                 }
             } catch (_: Exception) {}
 
+            // 再检查进程是否已退出
+            if (nodeProcess != null && !nodeProcess!!.isAlive) {
+                val exitCode = nodeProcess!!.exitValue()
+                Log.e(TAG, "Node process exited with code $exitCode")
+                if (wasReady) {
+                    Log.i(TAG, "Server was ready before exit, treating as success")
+                    return true
+                }
+                lastErrorPublic = "Node 进程异常退出 (code $exitCode)"
+                return false
+            }
+
             try { Thread.sleep(POLL_INTERVAL_MS) } catch (_: InterruptedException) { return false }
 
             if (attempt % 5 == 0) {
@@ -227,6 +251,32 @@ class NodeService : Service() {
             }
         }
         return false
+    }
+
+    /**
+     * 防御性地修正 config.yaml 中 Android 环境不安全的配置项。
+     *
+     * 双保险 ②：环境变量已覆盖 getConfigValue，此处再修正文件本身，
+     * 确保即使上游修改 env 机制，config 文件层面也是安全的。
+     * 用正则做行级替换，对上游 config 结构变化有韧性。
+     */
+    private fun sanitizeConfig(configFile: File) {
+        if (!configFile.exists()) return
+        try {
+            val content = configFile.readText()
+            val patched = content
+                // browserLaunch.enabled: true → false （xdg-open 不存在会导致进程崩溃）
+                .replace(
+                    Regex("(\\nbrowserLaunch:\\n(\\s+)enabled:\\s*)true"),
+                    "\$1false"
+                )
+            if (patched != content) {
+                configFile.writeText(patched)
+                Log.i(TAG, "Config sanitized: browserLaunch disabled")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not sanitize config: ${e.message}")
+        }
     }
 
     private fun stopNode() {

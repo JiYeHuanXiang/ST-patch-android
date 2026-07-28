@@ -287,6 +287,8 @@ class WebViewActivity : AppCompatActivity() {
                 if (newProgress < 100) {
                     progressBar.visibility = View.VISIBLE
                     progressBar.progress = newProgress
+                    loadingText.visibility = View.VISIBLE
+                    loadingText.text = "正在加载 SillyTavern... $newProgress%"
                 }
             }
 

@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#202124">
+    android:background="#202124"
+    android:orientation="vertical">
 
+    <!-- 顶部状态区 -->
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
         android:orientation="vertical"
         android:gravity="center"
-        android:padding="24dp">
+        android:padding="20dp">
 
-        <!-- Logo 占位：后续替换为 SillyTavern 图标 -->
         <ImageView
-            android:layout_width="120dp"
-            android:layout_height="120dp"
-            android:layout_marginBottom="24dp"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_marginBottom="12dp"
             android:src="@mipmap/ic_launcher" />
 
         <TextView
@@ -24,16 +24,16 @@
             android:layout_height="wrap_content"
             android:text="SillyTavern Patch"
             android:textColor="#FFFFFFFF"
-            android:textSize="22sp"
+            android:textSize="20sp"
             android:textStyle="bold"
-            android:layout_marginBottom="32dp" />
+            android:layout_marginBottom="16dp" />
 
         <ProgressBar
             android:id="@+id/splashProgressBar"
             style="?android:attr/progressBarStyleLarge"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginBottom="16dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="10dp"
             android:indeterminateTint="#FF03DAC5" />
 
         <TextView
@@ -44,6 +44,77 @@
             android:textColor="#BFFFFFFF"
             android:textSize="14sp" />
 
+        <Button
+            android:id="@+id/retryButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:visibility="gone"
+            android:text="重试"
+            android:backgroundTint="#FF03DAC5"
+            android:textColor="#FFFFFFFF" />
+
     </LinearLayout>
 
-</FrameLayout>
+    <!-- 底部日志区（启动时即可见，实时显示） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="启动日志"
+                android:textColor="#FF03DAC5"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/copyLogButton"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:minWidth="0dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="复制"
+                android:textSize="11sp"
+                android:backgroundTint="#FF03DAC5"
+                android:textColor="#FFFFFFFF" />
+
+        </LinearLayout>
+
+        <ScrollView
+            android:id="@+id/logScrollView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="#1A1A1D"
+            android:padding="8dp">
+
+            <TextView
+                android:id="@+id/logTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#FFCCCCCC"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:textIsSelectable="true"
+                android:lineSpacingExtra="1dp" />
+
+        </ScrollView>
+
+    </LinearLayout>
+
+</LinearLayout>
