@@ -48,6 +48,7 @@ class SplashActivity : AppCompatActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var logRefreshActive = true
+    private var displayedLogCount = 0
 
     private val logRefresher = object : Runnable {
         override fun run() {
@@ -107,6 +108,8 @@ class SplashActivity : AppCompatActivity() {
             progressBar.visibility = View.VISIBLE
             retryButton.visibility = View.GONE
             statusText.text = "正在重启 SillyTavern..."
+            displayedLogCount = 0
+            logTextView.text = ""
             logRefreshActive = true
             mainHandler.post(logRefresher)
             startNodeService()
@@ -118,6 +121,9 @@ class SplashActivity : AppCompatActivity() {
             clipboard.setPrimaryClip(ClipData.newPlainText("SillyTavern Log", logText))
             Toast.makeText(this, "日志已复制到剪贴板", Toast.LENGTH_SHORT).show()
         }
+
+        // 复制按钮需要重建完整日志文本
+        logTextView.text = ""  // 初始空文本，由 updateLogText 追加
 
         // 注册广播接收器（Android 14+ 需要显式 flag）
         val filter = IntentFilter().apply {
@@ -196,11 +202,29 @@ class SplashActivity : AppCompatActivity() {
     }
 
     private fun updateLogText() {
-        val log = getFormattedLog()
-        logTextView.text = log
-        // 自动滚动到底部，显示最新输出
-        logScrollView.post {
-            logScrollView.fullScroll(View.FOCUS_DOWN)
+        val newLines: List<String>
+        synchronized(NodeService.nodeLogLines) {
+            if (displayedLogCount >= NodeService.nodeLogLines.size) {
+                return
+            }
+            newLines = NodeService.nodeLogLines.subList(displayedLogCount, NodeService.nodeLogLines.size)
+            displayedLogCount = NodeService.nodeLogLines.size
+        }
+
+        // 判断用户是否正在主动上滑查看历史日志；若是，不要自动滚动到底部
+        val canAutoScroll = logScrollView.scrollY + logScrollView.height >= logScrollView.getChildAt(0).height - 32
+
+        val sb = StringBuilder(logTextView.text)
+        for (line in newLines) {
+            if (sb.isNotEmpty()) sb.append('\n')
+            sb.append(line)
+        }
+        logTextView.text = sb.toString()
+
+        if (canAutoScroll) {
+            logScrollView.post {
+                logScrollView.fullScroll(View.FOCUS_DOWN)
+            }
         }
     }
 
@@ -211,11 +235,7 @@ class SplashActivity : AppCompatActivity() {
                 sb.appendLine(line)
             }
         }
-        return if (sb.isEmpty()) {
-            "等待 Node 启动..."
-        } else {
-            sb.toString().trimEnd()
-        }
+        return sb.toString().trimEnd()
     }
 
     private fun openWebView() {
