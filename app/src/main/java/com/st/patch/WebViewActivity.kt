@@ -10,6 +10,8 @@ import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.util.Base64
 import android.view.KeyEvent
@@ -43,6 +45,55 @@ class WebViewActivity : AppCompatActivity() {
     private lateinit var loadingText: TextView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val FILE_CHOOSER_REQUEST_CODE = 10001
+
+    // native loading 兜底隐藏：onPageFinished 在 SPA + 含长期 pending 请求时可能不触发，
+    // 用 Handler 轮询 document.readyState，complete 即隐藏 loading，避免"加载中...10%"永久停留
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var readyStateChecks = 0
+    private val readyStateRunnable = object : Runnable {
+        override fun run() {
+            if (isFinishing || isDestroyed) return
+            webView.evaluateJavascript("(function(){try{return document.readyState;}catch(e){return '';}})()") { result ->
+                // result 形如 "\"complete\""（带引号）
+                val state = result?.trim()?.replace("\"", "") ?: ""
+                if (state == "complete") {
+                    hideLoadingUi()
+                } else {
+                    readyStateChecks++
+                    if (readyStateChecks < 120) { // 最多约 60 秒
+                        mainHandler.postDelayed(this, 500)
+                    }
+                }
+            }
+        }
+    }
+
+    /** 启动/重启 readyState 轮询（每次加载新页面时调用） */
+    private fun scheduleReadyStateCheck() {
+        mainHandler.removeCallbacks(readyStateRunnable)
+        readyStateChecks = 0
+        mainHandler.postDelayed(readyStateRunnable, 800)
+    }
+
+    private fun hideLoadingUi() {
+        mainHandler.removeCallbacks(readyStateRunnable)
+        if (progressBar.visibility != View.GONE) progressBar.visibility = View.GONE
+        if (loadingText.visibility != View.GONE) loadingText.visibility = View.GONE
+    }
+
+    /**
+     * 刷新内置 WebView：重新加载当前页面并重置 native loading 状态。
+     * 用于页面卡住、loading 文字残留、或开发调试场景。
+     */
+    private fun reloadWebView() {
+        // 重新显示 native loading，随后重新加载
+        progressBar.visibility = View.VISIBLE
+        progressBar.progress = 0
+        loadingText.visibility = View.VISIBLE
+        loadingText.text = "正在刷新..."
+        webView.reload()
+        scheduleReadyStateCheck()
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,15 +137,20 @@ class WebViewActivity : AppCompatActivity() {
                 if (webView.canGoBack()) {
                     webView.goBack()
                 } else {
-                    // 确认退出
+                    // 无历史可退：弹出选项（刷新页面 / 退出），不挡酒馆 UI
+                    val items = arrayOf("刷新页面", "退出 SillyTavern")
                     AlertDialog.Builder(this@WebViewActivity)
-                        .setTitle("退出 SillyTavern")
-                        .setMessage("确定要停止服务器并退出吗？")
-                        .setPositiveButton("退出") { _, _ ->
-                            // 停止 NodeService
-                            val serviceIntent = Intent(this@WebViewActivity, NodeService::class.java)
-                            stopService(serviceIntent)
-                            finish()
+                        .setTitle("请选择操作")
+                        .setItems(items) { _, which ->
+                            when (which) {
+                                0 -> reloadWebView()
+                                1 -> {
+                                    // 停止 NodeService 并退出
+                                    val serviceIntent = Intent(this@WebViewActivity, NodeService::class.java)
+                                    stopService(serviceIntent)
+                                    finish()
+                                }
+                            }
                         }
                         .setNegativeButton("取消", null)
                         .show()
@@ -107,6 +163,9 @@ class WebViewActivity : AppCompatActivity() {
         } else {
             webView.loadUrl(targetUrl)
         }
+
+        // 启动 readyState 轮询兜底，complete 后自动隐藏 native loading
+        scheduleReadyStateCheck()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -166,6 +225,9 @@ class WebViewActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     // 没有浏览器可用时忽略
                 }
+                // 外链被拦截，不进 WebView 内加载；但 onProgressChanged 可能已显示 loading，
+                // 重启 readyState 兜底，让"加载中"文字被清掉，避免残留
+                scheduleReadyStateCheck()
                 return true
             }
 
@@ -284,7 +346,10 @@ class WebViewActivity : AppCompatActivity() {
             /** 进度条更新 */
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
-                if (newProgress < 100) {
+                if (newProgress >= 100) {
+                    // 进度到 100 一定隐藏（与 onPageFinished / readyState 兜底三重保险）
+                    hideLoadingUi()
+                } else {
                     progressBar.visibility = View.VISIBLE
                     progressBar.progress = newProgress
                     loadingText.visibility = View.VISIBLE
@@ -499,6 +564,7 @@ class WebViewActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(readyStateRunnable)
         webView.destroy()
         super.onDestroy()
     }

@@ -196,7 +196,28 @@ class SplashActivity : AppCompatActivity() {
                         return@thread
                     }
                 } catch (_: Exception) {}
+                // Node 日志自报就绪也视为成功（兜底广播丢失场景）
+                if (NodeService.nodeReportedReady) {
+                    runOnUiThread { openWebView() }
+                    return@thread
+                }
                 try { Thread.sleep(1000) } catch (_: InterruptedException) { return@thread }
+            }
+
+            // 90 秒轮询结束仍未就绪——不再静默卡死。
+            // 若 NodeService 已有错误则呈现失败 UI，否则提示启动耗时过长并显示重试按钮。
+            if (isFinishing || isDestroyed) return@thread
+            runOnUiThread {
+                logRefreshActive = false
+                mainHandler.removeCallbacks(logRefresher)
+                updateLogText()
+                progressBar.visibility = View.GONE
+                retryButton.visibility = View.VISIBLE
+                statusText.text = if (NodeService.lastErrorPublic.isNotEmpty()) {
+                    "服务器启动失败\n${NodeService.lastErrorPublic}"
+                } else {
+                    "启动耗时较长，请查看日志或点重试"
+                }
             }
         }
     }

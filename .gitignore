@@ -56,6 +56,9 @@ log.txt
 # Windows 快捷方式
 *.lnk
 
+# 本地草稿/反馈文档（不进仓库）
+上游漏洞反馈.md
+
 # --- 构建输出（release 目录） ---
 app/release/
 
@@ -63,6 +66,7 @@ app/release/
 .gemini/
 .lingma/
 .reasonix/
+reasonix.toml
 .aider*
 
 # --- 测试结果 ---

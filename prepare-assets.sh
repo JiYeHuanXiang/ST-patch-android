@@ -16,7 +16,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# 支持自定义 SillyTavern 源码根：SOURCE_ROOT=/path/to/sillytavern bash prepare-assets.sh
+if [ -n "${SOURCE_ROOT:-}" ]; then
+    PROJECT_ROOT="$(cd "$SOURCE_ROOT" && pwd)"
+else
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 ASSETS_DIR="$SCRIPT_DIR/app/src/main/assets/sillytavern"
 
 echo "============================================================"
@@ -114,6 +119,54 @@ else
     echo "    chmod +x $NODE_BIN"
 fi
 
+# 5. 把 app/ 打成 app.zip（运行时单流解压，避免 14000+ 次 AssetManager 查找）
+echo ""
+echo "[5/5] 把 app/ 归档为 app.zip（加速运行时解压）..."
+
+APP_DIR="$ASSETS_DIR/app"
+APP_ZIP="$ASSETS_DIR/app.zip"
+
+if [ ! -d "$APP_DIR" ]; then
+    echo "  错误：$APP_DIR 不存在，无法归档。" >&2
+    exit 1
+fi
+
+rm -f "$APP_ZIP"
+# 用 Python 生成标准 zip（macOS/Linux 一般自带 python3）；回退到 zip 命令
+if command -v python3 &> /dev/null; then
+    (cd "$APP_DIR" && python3 - "$APP_ZIP" <<'PYEOF'
+import sys, zipfile, os
+out = sys.argv[1]
+# 保留 app/ 前缀，使条目为 app/server.js 等；解压到 sillytavern/ 即得 sillytavern/app/server.js
+with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk('.'):
+        dirs.sort(); files.sort()
+        for name in dirs:
+            full = os.path.join(root, name)
+            # 相对 app/ 的路径（不加 app/ 前缀）；解压器解到 .app_tmp/ 后 rename 为 app/
+            arc = os.path.relpath(full, '.') + '/'
+            zf.write(full, arc)
+        for name in files:
+            full = os.path.join(root, name)
+            arc = os.path.relpath(full, '.')
+            zf.write(full, arc)
+PYEOF
+)
+elif command -v zip &> /dev/null; then
+    (cd "$APP_DIR" && zip -r -q "$APP_ZIP" .)
+else
+    echo "  错误：需要 python3 或 zip 命令来生成 app.zip" >&2
+    exit 1
+fi
+
+ZIP_SIZE=$(du -h "$APP_ZIP" | cut -f1)
+ZIP_ENTRIES=$(python3 -c "import zipfile; print(len(zipfile.ZipFile('$APP_ZIP').namelist()))" 2>/dev/null || echo "?")
+echo "  + app.zip ($ZIP_SIZE, $ZIP_ENTRIES 条目)"
+
+# 归档完成后删除散件 app/（node-bin/ 保持散件）
+rm -rf "$APP_DIR"
+echo "  已删除散件 app/ 目录"
+
 # 汇总
 echo ""
 echo "============================================================"
@@ -135,13 +188,7 @@ echo "目录结构："
 echo "  assets/sillytavern/"
 echo "  ├── node-bin/"
 echo "  │   └── node          ← arm64 Node.js 二进制"
-echo "  └── app/"
-echo "      ├── server.js"
-echo "      ├── package.json"
-echo "      ├── src/"
-echo "      ├── public/"
-echo "      ├── default/"
-echo "      └── node_modules/"
+echo "  └── app.zip           ← 归档后的 SillyTavern（server.js/src/public/default/node_modules）"
 echo ""
 echo "现在可以用 Android Studio 或 Gradle 构建 APK："
 echo "  cd Android && ./gradlew assembleRelease"

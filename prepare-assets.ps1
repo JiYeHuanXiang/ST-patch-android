@@ -6,11 +6,21 @@
 # Node.js arm64 binary must be manually placed at:
 #   Android\app\src\main\assets\sillytavern\node-bin\node
 
+param(
+    [string]$SourceRoot
+)
+
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
+
+# 默认项目根 = 脚本上一级目录；可用 -SourceRoot 显式指定 SillyTavern 源码目录
+if (-not $SourceRoot) {
+    $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
+} else {
+    $ProjectRoot = Resolve-Path $SourceRoot
+}
 $AssetsDir = Join-Path $ScriptDir "app\src\main\assets\sillytavern"
 
 Write-Host "============================================================"
@@ -169,6 +179,57 @@ if ($missingLibs.Count -gt 0) {
     Write-Host "    Copy all files into $AssetsDir\node-bin\"
 }
 
+# 5. Archive app/ into app.zip (single-stream extraction at runtime avoids 14000+ AssetManager lookups)
+Write-Host ""
+Write-Host "[5/5] Archiving app/ into app.zip (runtime extraction speedup)..."
+
+$AppDir = Join-Path $AssetsDir "app"
+$AppZip = Join-Path $AssetsDir "app.zip"
+
+if (-not (Test-Path $AppDir)) {
+    Write-Host "  ERROR: $AppDir not found, cannot archive." -ForegroundColor Red
+    exit 1
+}
+
+# .NET ZipFile API — 手动遍历写入，强制正斜杠条目名（Java ZipInputStream 标准）
+# CreateFromDirectory 在 Windows 会用反斜杠，导致 Android 端路径解析异常
+# 子进程里 Add-Type -AssemblyName 偶发无法解析枚举类型，用 LoadWithPartialName 兜底强制加载
+[void][System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression")
+[void][System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression.FileSystem")
+
+if (Test-Path $AppZip) { Remove-Item $AppZip -Force }
+
+# Create=1, CompressionLevel.Optimal=0；用数值字面量避开枚举类型解析失败
+$fs = [System.IO.File]::Open($AppZip, [System.IO.FileMode]::Create)
+$zip = New-Object System.IO.Compression.ZipArchive($fs, 1)
+try {
+    Get-ChildItem $AppDir -Recurse -File -Force | ForEach-Object {
+        # 相对 app/ 的路径，统一成正斜杠（不加 app/ 前缀）
+        # 解压器把条目解到 sillytavern/.app_tmp/，再 rename 为 app/，即得 sillytavern/app/<rel>
+        $rel = $_.FullName.Substring($AppDir.Length + 1).Replace('\', '/')
+        $entry = $zip.CreateEntry($rel, 0)
+        $es = $entry.Open()
+        $is = [System.IO.File]::OpenRead($_.FullName)
+        try { $is.CopyTo($es) } finally { $is.Dispose(); $es.Dispose() }
+    }
+} finally {
+    $zip.Dispose()
+    $fs.Dispose()
+}
+
+$zipSize = [math]::Round((Get-Item $AppZip).Length / 1MB, 1)
+$zipInfo = [System.IO.Compression.ZipFile]::OpenRead($AppZip)
+try {
+    $entryCount = $zipInfo.Entries.Count
+} finally {
+    $zipInfo.Dispose()
+}
+Write-Host "  + app.zip ($zipSize MB, $entryCount entries)"
+
+# Delete scattered app/ now that it's archived (node-bin/ stays scattered)
+Remove-Item $AppDir -Recurse -Force
+Write-Host "  Removed scattered app/ directory"
+
 # Summary
 Write-Host ""
 Write-Host "============================================================"
@@ -192,13 +253,7 @@ Write-Host "      libicuuc.so.78"
 Write-Host "      libsqlite3.so"
 Write-Host "      libffi.so"
 Write-Host "      libz.so.1"
-Write-Host "    app/"
-Write-Host "      server.js"
-Write-Host "      package.json"
-Write-Host "      src/"
-Write-Host "      public/"
-Write-Host "      default/"
-Write-Host "      node_modules/"
+Write-Host "    app.zip           <-- archived SillyTavern (server.js/src/public/default/node_modules)"
 Write-Host ""
 Write-Host "Build APK with:"
 Write-Host "  cd Android; .\gradlew.bat assembleRelease"

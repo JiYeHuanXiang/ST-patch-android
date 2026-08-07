@@ -45,6 +45,17 @@ class NodeService : Service() {
         var lastErrorPublic = ""
             private set
 
+        /**
+         * Node 输出中是否出现过就绪特征行。
+         * 用于兜底：Node 在 HTTP 探测窗口外 ready 后瞬间退出时，避免误判为失败。
+         */
+        @Volatile
+        var nodeReportedReady = false
+            private set
+
+        /** 就绪日志特征词（小写匹配）。SillyTavern 启动时打印监听端口/就绪信息。 */
+        private val READY_KEYWORDS = arrayOf("listen", "started", "running", "ready", "launched")
+
         /** 最近 200 行 Node 输出日志，供 UI 查阅/复制 */
         val nodeLogLines = java.util.Collections.synchronizedList(ArrayList<String>(256))
         private const val LOG_MAX_LINES = 200
@@ -91,6 +102,10 @@ class NodeService : Service() {
     private fun startNodeAsync() {
         thread(name = "node-starter") {
             try {
+                // 重置本次启动的状态
+                lastErrorPublic = ""
+                nodeReportedReady = false
+
                 // 0. 检测 CPU 架构
                 val arch = Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"
                 Log.i(TAG, "Device ABI: $arch")
@@ -104,15 +119,38 @@ class NodeService : Service() {
 
                 // 1. 解压 assets
                 val filesDir = filesDir.absolutePath
-                val versionFile = File(filesDir, "sillytavern/.extracted_version")
+                val sillyDir = File(filesDir, "sillytavern")
+                val versionFile = File(sillyDir, ".extracted_version")
+                val extractingFlag = File(sillyDir, ".extracting")
 
-                if (!versionFile.exists() || versionFile.readText() != appVersion) {
+                // 版本不匹配，或上次解压被中断（.extracting 仍存在）→ 需要重新解压
+                val needExtract = !versionFile.exists()
+                        || versionFile.readText().trim() != appVersion
+                        || extractingFlag.exists()
+
+                if (needExtract) {
                     updateNotification("正在解压资源文件...")
                     Log.i(TAG, "Extracting assets to $filesDir")
-                    val extractAssets = ExtractAssets(this)
-                    extractAssets.extractResources("sillytavern")
 
-                    versionFile.parentFile?.mkdirs()
+                    val extractAssets = ExtractAssets(this)
+                    try {
+                        // app/ 走单流 zip 解压（原子落地，杜绝半解压后误启动 Node）
+                        extractAssets.extractZipArchive(
+                            "sillytavern/app.zip", sillyDir
+                        )
+                        // node-bin/ 数量少，仍走散件解压
+                        extractAssets.extractResources("sillytavern/node-bin")
+                    } catch (e: Exception) {
+                        // 解压失败：写明错误并广播失败，绝不带半状态启动 Node
+                        lastErrorPublic = "资源解压失败: ${e.message}"
+                        Log.e(TAG, lastErrorPublic, e)
+                        updateNotification(lastErrorPublic)
+                        sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
+                        return@thread
+                    }
+
+                    // 全部成功后写版本号；.extracting 标记已被解压器清除
+                    sillyDir.mkdirs()
                     versionFile.writeText(appVersion)
                 } else {
                     Log.i(TAG, "Assets already extracted, skipping")
@@ -198,13 +236,21 @@ class NodeService : Service() {
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
-                    Log.i(TAG, "[node] $line")
+                    val current = line // 取稳定值，便于 smart cast
+                    Log.i(TAG, "[node] $current")
                     // 存入环形缓冲区，供 UI 查阅
                     synchronized(nodeLogLines) {
                         if (nodeLogLines.size >= LOG_MAX_LINES) {
                             nodeLogLines.removeAt(0)
                         }
-                        nodeLogLines.add(line ?: "")
+                        nodeLogLines.add(current ?: "")
+                    }
+
+                    // 日志就绪兜底：Node 自己打印了监听/就绪信息，
+                    // 即便 HTTP 探测窗口外它瞬间退出，也不误判为失败
+                    if (!nodeReportedReady && current != null && isReadyLogLine(current)) {
+                        nodeReportedReady = true
+                        Log.i(TAG, "Server reported ready via log output")
                     }
                 }
             } catch (e: Exception) {
@@ -218,25 +264,19 @@ class NodeService : Service() {
         for (attempt in 1..POLL_MAX_ATTEMPTS) {
             // 优先尝试 HTTP 探测：服务器可能在 ready 后因无害原因（如 xdg-open）
             // 瞬间退出，先查端口能避免误判为失败
-            try {
-                val conn = URL(SERVER_URL).openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
-                conn.connectTimeout = 2000
-                conn.readTimeout = 2000
-                conn.instanceFollowRedirects = false
-                val code = conn.responseCode
-                conn.disconnect()
-                if (code in 200..399) {
-                    wasReady = true
-                    return true
-                }
-            } catch (_: Exception) {}
+            val code = httpProbe()
+            if (code in 200..399) {
+                wasReady = true
+                return true
+            }
 
             // 再检查进程是否已退出
             if (nodeProcess != null && !nodeProcess!!.isAlive) {
                 val exitCode = nodeProcess!!.exitValue()
                 Log.e(TAG, "Node process exited with code $exitCode")
-                if (wasReady) {
+                // wasReady=HTTP 曾探到就绪；nodeReportedReady=Node 日志自报就绪
+                // 任一为真即视为启动成功，避免 ready 后瞬间退出被误判失败
+                if (wasReady || nodeReportedReady) {
                     Log.i(TAG, "Server was ready before exit, treating as success")
                     return true
                 }
@@ -251,6 +291,36 @@ class NodeService : Service() {
             }
         }
         return false
+    }
+
+    /**
+     * HTTP 探测服务器是否就绪。返回状态码或 -1（连接失败/超时）。
+     * pollServerReady 与 SplashActivity 的兜底轮询复用本方法，避免逻辑分叉。
+     */
+    private fun httpProbe(): Int {
+        return try {
+            val conn = URL(SERVER_URL).openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 2000
+            conn.readTimeout = 2000
+            conn.instanceFollowRedirects = false
+            val code = conn.responseCode
+            conn.disconnect()
+            code
+        } catch (_: Exception) {
+            -1
+        }
+    }
+
+    /**
+     * 判断一行 Node 输出是否表示服务器已就绪。
+     * 需同时含端口号 8000 且含就绪特征词，避免误命中普通日志。
+     * （特征词宽松覆盖 listen/started/running/ready/launched）
+     */
+    private fun isReadyLogLine(line: String): Boolean {
+        val lower = line.lowercase()
+        if (!lower.contains("8000")) return false
+        return READY_KEYWORDS.any { lower.contains(it) }
     }
 
     /**

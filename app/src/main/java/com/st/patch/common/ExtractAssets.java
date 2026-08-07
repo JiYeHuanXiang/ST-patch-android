@@ -2,13 +2,17 @@ package com.st.patch.common;
 
 import android.content.Context;
 
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * 从 APK assets 解压资源到私有目录。
@@ -105,6 +109,157 @@ public class ExtractAssets {
         outFile.setWritable(true, true);
         if (outFile.getName().equals("node") || outFile.getName().endsWith(".sh")) {
             outFile.setExecutable(true, false);
+        }
+    }
+
+    /**
+     * 从 APK assets 中的单个 zip 归档流式解压到 filesDir。
+     *
+     * 相比 extractResources 对每个文件单独 AssetManager.open，
+     * 这里只打开一次输入流顺序读取，把 14000+ 次条目定位降为 1 次。
+     *
+     * 原子落地：先解压到 .app_tmp/，全部成功后再替换正式目录，避免半解压状态被当作已就绪。
+     *
+     * @param assetPath assets 中的 zip 路径，如 "sillytavern/app.zip"
+     * @param destDir   解压目标根目录（条目会保存在其下，如 .../sillytavern/app/...）
+     * @return 目标根目录路径
+     * @throws IOException 解压任一条目失败时抛出，调用方应广播失败而非继续启动 Node
+     */
+    public String extractZipArchive(String assetPath, File destDir) throws IOException {
+        String destKey = destDir.getCanonicalPath();
+        if (extractHistory.containsKey(destKey)) {
+            return extractHistory.get(destKey);
+        }
+
+        if (!destDir.exists()) {
+            destDir.mkdirs();
+        }
+
+        // 原子落地用的临时目录
+        File tmpDir = new File(destDir, ".app_tmp");
+        deleteRecursively(tmpDir);
+        tmpDir.mkdirs();
+
+        // 标记正在解压（调用方据此在中断后强制重解）
+        File extracting = new File(destDir, ".extracting");
+        extracting.createNewFile();
+
+        try (InputStream raw = context.getAssets().open(assetPath);
+             ZipInputStream zis = new ZipInputStream(new BufferedInputStream(raw, BUFFER_SIZE))) {
+
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                String name = entry.getName();
+                if (name == null || name.isEmpty()) {
+                    continue;
+                }
+
+                // 防路径穿越：拒绝绝对路径或包含 .. 的条目
+                if (name.startsWith("/") || name.contains("..")) {
+                    zis.closeEntry();
+                    continue;
+                }
+                // 强制正斜杠统一处理
+                name = name.replace('\\', '/');
+
+                File outFile = new File(tmpDir, name);
+                String canonical = outFile.getCanonicalPath();
+                String tmpBase = tmpDir.getCanonicalPath();
+                if (!canonical.startsWith(tmpBase + File.separator)) {
+                    // 不在临时根下，拒绝
+                    zis.closeEntry();
+                    continue;
+                }
+
+                if (entry.isDirectory()) {
+                    outFile.mkdirs();
+                    continue;
+                }
+
+                File parent = outFile.getParentFile();
+                if (parent != null && !parent.exists()) {
+                    parent.mkdirs();
+                }
+
+                // 写入文件
+                try (FileOutputStream out = new FileOutputStream(outFile)) {
+                    byte[] buffer = new byte[BUFFER_SIZE];
+                    int len;
+                    while ((len = zis.read(buffer)) > 0) {
+                        out.write(buffer, 0, len);
+                    }
+                    out.flush();
+                }
+
+                // 权限语义与 extractSingleFile 一致
+                outFile.setReadable(true, false);
+                outFile.setWritable(true, true);
+                String fname = outFile.getName();
+                if (fname.equals("node") || fname.endsWith(".sh")) {
+                    outFile.setExecutable(true, false);
+                }
+
+                zis.closeEntry();
+            }
+
+            // 全部成功：删除旧正式目录（如非首次/升级场景），把临时目录就地 rename
+            File finalAppDir = new File(destDir, "app");
+            if (finalAppDir.exists()) {
+                deleteRecursively(finalAppDir);
+            }
+            // rename 为 app
+            boolean renamed = tmpDir.renameTo(finalAppDir);
+            if (!renamed) {
+                // rename 跨某些挂载点可能失败，回退到拷贝
+                copyDir(tmpDir, finalAppDir);
+                deleteRecursively(tmpDir);
+            }
+
+            // 解压完成标记
+            extracting.delete();
+
+            extractHistory.put(destKey, finalAppDir.getAbsolutePath());
+            return finalAppDir.getAbsolutePath();
+
+        } catch (IOException e) {
+            // 失败：清理临时目录与标记，向上抛出
+            deleteRecursively(tmpDir);
+            extracting.delete();
+            throw e;
+        }
+    }
+
+    private void deleteRecursively(File f) {
+        if (f == null || !f.exists()) return;
+        if (f.isDirectory()) {
+            File[] children = f.listFiles();
+            if (children != null) {
+                for (File c : children) {
+                    deleteRecursively(c);
+                }
+            }
+        }
+        f.delete();
+    }
+
+    private void copyDir(File src, File dest) throws IOException {
+        if (src.isDirectory()) {
+            if (!dest.exists()) dest.mkdirs();
+            File[] children = src.listFiles();
+            if (children != null) {
+                for (File c : children) {
+                    copyDir(c, new File(dest, c.getName()));
+                }
+            }
+        } else {
+            try (FileInputStream in = new FileInputStream(src);
+                 FileOutputStream out = new FileOutputStream(dest)) {
+                byte[] buffer = new byte[BUFFER_SIZE];
+                int len;
+                while ((len = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, len);
+                }
+            }
         }
     }
 
