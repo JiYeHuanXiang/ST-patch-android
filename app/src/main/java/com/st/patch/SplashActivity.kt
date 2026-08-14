@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.WindowManager
+import android.webkit.WebView
 import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -151,6 +152,9 @@ class SplashActivity : AppCompatActivity() {
 
         // 兜底：HTTP 轮询，防止广播丢失
         startPolling()
+
+        // 预热 WebView 引擎（与 Node 启动并行，缩短就绪后的等待）
+        mainHandler.post { warmUpWebView() }
     }
 
     private fun startNodeService() {
@@ -167,8 +171,6 @@ class SplashActivity : AppCompatActivity() {
 
         val serviceIntent = Intent(this, NodeService::class.java).apply {
             action = NodeService.ACTION_START
-            putExtra(NodeService.EXTRA_VERSION, packageManager
-                .getPackageInfo(packageName, 0).versionName)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
@@ -257,6 +259,20 @@ class SplashActivity : AppCompatActivity() {
             }
         }
         return sb.toString().trimEnd()
+    }
+
+    /**
+     * 预热 WebView 引擎：WebView 冷启动（加载 provider、拉起渲染进程）通常要数百 ms。
+     * 在等待 Node 启动的空档提前触发，使随后 WebViewActivity 中的 WebView 创建更快。
+     * 个别 ROM/WebView 实现预热失败时静默忽略，不影响启动流程。
+     */
+    private fun warmUpWebView() {
+        try {
+            val warm = WebView(this)
+            warm.destroy()
+        } catch (_: Throwable) {
+            // 预热失败不影响启动
+        }
     }
 
     private fun openWebView() {

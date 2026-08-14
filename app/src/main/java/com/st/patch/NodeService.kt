@@ -36,7 +36,6 @@ class NodeService : Service() {
         const val ACTION_STOP = "com.st.patch.ACTION_STOP"
         const val BROADCAST_SERVER_READY = "com.st.patch.SERVER_READY"
         const val BROADCAST_SERVER_FAILED = "com.st.patch.SERVER_FAILED"
-        const val EXTRA_VERSION = "app_version"
 
         var isRunning = false
             private set
@@ -62,7 +61,6 @@ class NodeService : Service() {
     }
 
     private var nodeProcess: Process? = null
-    private var appVersion: String = "1.0"
 
     override fun onCreate() {
         super.onCreate()
@@ -76,7 +74,6 @@ class NodeService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                appVersion = intent.getStringExtra(EXTRA_VERSION) ?: "1.0"
                 val notification = buildNotification("正在启动 SillyTavern...")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     startForeground(NOTIFICATION_ID, notification,
@@ -105,6 +102,13 @@ class NodeService : Service() {
                 // 重置本次启动的状态
                 lastErrorPublic = ""
                 nodeReportedReady = false
+
+                // 在后台线程读取版本号，避免主线程 PackageManager 查询造成卡顿
+                val appVersion = try {
+                    packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+                } catch (e: Exception) {
+                    "1.0"
+                }
 
                 // 0. 检测 CPU 架构
                 val arch = Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"
