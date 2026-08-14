@@ -88,13 +88,15 @@ if (Test-Path $nmSrc) {
     Copy-Item $nmSrc $nmDest -Recurse -Force
     Write-Host "  Copy done, cleaning up..."
 
-    # Remove @types (not needed at runtime)
-    $typesDir = Join-Path $nmDest "@types"
-    if (Test-Path $typesDir) { Remove-Item $typesDir -Recurse -Force }
+    # Keep @types/ — webpack's filesystem cache snapshots module dependencies at boot
+    # and must resolve each package's declared @types/*. Deleting it makes the cache write
+    # fail ("Caching failed for pack"), forcing a full ~20s recompile every launch.
+    # Keeping it costs ~1MB compressed and lets warm boots compile in ~2s.
 
-    # Remove unneeded files by extension
+    # Remove unneeded files by extension (skip @types/, which is almost entirely .d.ts)
     foreach ($ext in @("*.d.ts", "*.map")) {
         Get-ChildItem $nmDest -Recurse -File -Filter $ext -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch "[\\/]@types[\\/]" } |
             Remove-Item -Force -ErrorAction SilentlyContinue
     }
 

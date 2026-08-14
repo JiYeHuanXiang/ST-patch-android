@@ -68,6 +68,7 @@ app/release/
 .reasonix/
 reasonix.toml
 .aider*
+.mimosa/*
 
 # --- 测试结果 ---
 test-results/

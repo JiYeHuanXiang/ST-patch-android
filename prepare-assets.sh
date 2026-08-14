@@ -68,8 +68,11 @@ if [ -d "$PROJECT_ROOT/node_modules" ]; then
     
     # 清理不需要的文件以减小体积
     echo "  清理 node_modules 中的冗余文件..."
-    find "$ASSETS_DIR/app/node_modules" -type f -name "*.d.ts" -delete 2>/dev/null || true
-    find "$ASSETS_DIR/app/node_modules" -type f -name "*.map" -delete 2>/dev/null || true
+    # 注意：*.d.ts 清理须跳过 @types/（其内容全部是 .d.ts）。
+    # @types/ 本身必须保留：webpack filesystem 缓存的依赖快照需要解析它，
+    # 删除会导致每次启动全量重编译（实测 ~20s；保留后命中缓存约 2s）。
+    find "$ASSETS_DIR/app/node_modules" -type f -name "*.d.ts" -not -path "*/@types/*" -delete 2>/dev/null || true
+    find "$ASSETS_DIR/app/node_modules" -type f -name "*.map" -not -path "*/@types/*" -delete 2>/dev/null || true
     find "$ASSETS_DIR/app/node_modules" -type d -name ".github" -exec rm -rf {} + 2>/dev/null || true
     find "$ASSETS_DIR/app/node_modules" -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
     find "$ASSETS_DIR/app/node_modules" -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
@@ -84,8 +87,7 @@ if [ -d "$PROJECT_ROOT/node_modules" ]; then
     find "$ASSETS_DIR/app/node_modules" -type f -name "tsconfig.json" -delete 2>/dev/null || true
     find "$ASSETS_DIR/app/node_modules" -type f -name ".eslintrc*" -delete 2>/dev/null || true
     
-    # 删除 @types 包（运行时不需要）
-    rm -rf "$ASSETS_DIR/app/node_modules/@types" 2>/dev/null || true
+    # @types/ 保留（原因见上方 *.d.ts 清理处的注释）
     
     echo "  ✓ node_modules/ (已清理冗余文件)"
 else
