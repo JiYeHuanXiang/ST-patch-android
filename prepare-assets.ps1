@@ -1,4 +1,4 @@
-# prepare-assets.ps1 - Prepare Android assets directory
+﻿# prepare-assets.ps1 - Prepare Android assets directory
 # Copies SillyTavern source + node_modules to Android/app/src/main/assets/sillytavern/
 #
 # Usage:  powershell -ExecutionPolicy Bypass -File Android\prepare-assets.ps1
@@ -74,6 +74,18 @@ foreach ($d in $coreDirs) {
         Write-Host "  + $d/ ($sz MB)"
     }
 }
+
+# 补丁版自描述标记：原版与补丁版酒馆的特征文件完全相同（server.js + package.json），
+# Termux 侧脚本（apply.sh 等）靠 .st-patch-build 区分：无标记=原版；有标记=补丁版，
+# 版本与当前补丁包不一致=旧补丁（可覆盖升级），一致则跳过。与 prepare-assets.sh 保持一致。
+$buildGradle = Get-Content (Join-Path $ScriptDir "app\build.gradle") -Raw
+if ($buildGradle -match 'versionName\s+"([^"]+)"') {
+    $MarkerVersion = $Matches[1]
+} else {
+    $MarkerVersion = "unknown"
+}
+Set-Content -Path (Join-Path $AssetsDir "app\.st-patch-build") -Value $MarkerVersion -NoNewline
+Write-Host "  + .st-patch-build ($MarkerVersion)"
 
 # 3. Copy node_modules
 Write-Host ""
