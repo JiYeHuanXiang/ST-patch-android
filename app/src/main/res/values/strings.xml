@@ -9,4 +9,9 @@
     <string name="exit_confirm_message">确定要停止服务器并退出吗？</string>
     <string name="exit_confirm_positive">退出</string>
     <string name="exit_confirm_negative">取消</string>
+
+    <string name="mode_takeover_desc">接管 Termux 已装的酒馆：app 让 Termux 原地启动其目录下的酒馆（Termux 自带 node），WebView 打开 127.0.0.1:8000，不复制文件，退出即停。\n经 Termux RUN_COMMAND。</string>
+    <string name="mode_shadow_desc">把 Termux 的原版酒馆整目录复制到 app 私有目录后由 app（自带 node）启动，与 Termux 解耦、与「启动」模式的补丁版并存。只需复制一次；原版缺运行依赖时 app 自动补齐。</string>
+    <string name="mode_patch_desc">把 Termux 原版酒馆的用户数据（角色卡、聊天、API key、设置、扩展）迁入 app 自带内核，之后用「启动」模式即可带原有数据运行。只迁数据，不动代码。\n经 Termux 打包 + app 文件选择器导入。</string>
+    <string name="mode_upgrade_desc">用 app 自带的补丁版酒馆覆盖 Termux 原版酒馆的代码（server.js/src/public/依赖等），保留你的角色卡、聊天、API key、设置与 config.yaml。覆盖后用「接管」模式运行。\n经 Termux 自取覆盖。</string>
 </resources>

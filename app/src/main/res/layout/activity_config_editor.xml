@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#202124"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="设置 — config.yaml"
+        android:textColor="#FFFFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="6dp" />
+
+    <TextView
+        android:id="@+id/editorHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#80FFFFFF"
+        android:textSize="12sp"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnLazyLoad"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="一键启用角色懒加载（修「角色长度已达上限」）"
+        android:backgroundTint="#3A3A3D"
+        android:textColor="#FFFFFFFF"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/configEditor"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="top"
+        android:background="#2A2A2D"
+        android:padding="8dp"
+        android:typeface="monospace"
+        android:textColor="#FFFFFFFF"
+        android:textSize="12sp"
+        android:inputType="textMultiLine|textNoSuggestions"
+        android:scrollHorizontally="false" />
+
+    <Button
+        android:id="@+id/btnSaveConfig"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="保存"
+        android:backgroundTint="#FF03DAC5"
+        android:textColor="#FFFFFFFF"
+        android:layout_marginTop="8dp" />
+
+</LinearLayout>

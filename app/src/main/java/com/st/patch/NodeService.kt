@@ -37,6 +37,13 @@ class NodeService : Service() {
         const val BROADCAST_SERVER_READY = "com.st.patch.SERVER_READY"
         const val BROADCAST_SERVER_FAILED = "com.st.patch.SERVER_FAILED"
 
+        /**
+         * 影子模式：ACTION_START 附带该 extra 指定酒馆根目录（从 Termux 复制来的完整酒馆），
+         * 跳过 assets 解压，直接以 app 自带 libnode.so 跑该目录的 server.js。
+         * 缺省 = 启动模式（解压 app.zip 跑 app 自带内核）。
+         */
+        const val EXTRA_ST_DIR = "st_dir"
+
         var isRunning = false
             private set
 
@@ -62,6 +69,9 @@ class NodeService : Service() {
 
     private var nodeProcess: Process? = null
 
+    /** 影子模式的酒馆根目录（null = 启动模式，跑 app 自带内核） */
+    private var shadowStDir: String? = null
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -74,6 +84,8 @@ class NodeService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START -> {
+                // 影子模式：附带酒馆根目录（跳过 assets 解压，直接跑该目录）；缺省走自带内核
+                shadowStDir = intent.getStringExtra(EXTRA_ST_DIR)
                 val notification = buildNotification("正在启动 SillyTavern...")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     startForeground(NOTIFICATION_ID, notification,
@@ -121,43 +133,72 @@ class NodeService : Service() {
                     return@thread
                 }
 
-                // 1. 解压 assets
+                // 1. 运行目录：影子模式跑复制来的酒馆目录（跳过 assets 解压）；否则解压 app 自带内核
                 val filesDir = filesDir.absolutePath
-                val sillyDir = File(filesDir, "sillytavern")
-                val versionFile = File(sillyDir, ".extracted_version")
-                val extractingFlag = File(sillyDir, ".extracting")
+                val shadowDir: File? = shadowStDir?.let(::File)
+                val isShadow = shadowDir != null
 
-                // 版本不匹配，或上次解压被中断（.extracting 仍存在）→ 需要重新解压
-                val needExtract = !versionFile.exists()
-                        || versionFile.readText().trim() != appVersion
-                        || extractingFlag.exists()
-
-                if (needExtract) {
-                    updateNotification("正在解压资源文件...")
-                    Log.i(TAG, "Extracting assets to $filesDir")
-
-                    val extractAssets = ExtractAssets(this)
-                    try {
-                        // app/ 走单流 zip 解压（原子落地，杜绝半解压后误启动 Node）
-                        extractAssets.extractZipArchive(
-                            "sillytavern/app.zip", sillyDir
-                        )
-                        // node-bin/ 数量少，仍走散件解压
-                        extractAssets.extractResources("sillytavern/node-bin")
-                    } catch (e: Exception) {
-                        // 解压失败：写明错误并广播失败，绝不带半状态启动 Node
-                        lastErrorPublic = "资源解压失败: ${e.message}"
-                        Log.e(TAG, lastErrorPublic, e)
+                if (isShadow) {
+                    val dir = shadowDir!!
+                    if (!File(dir, "server.js").isFile) {
+                        lastErrorPublic = "影子酒馆目录无效（缺 server.js）：${dir.absolutePath}"
+                        Log.e(TAG, lastErrorPublic)
                         updateNotification(lastErrorPublic)
                         sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
                         return@thread
                     }
-
-                    // 全部成功后写版本号；.extracting 标记已被解压器清除
-                    sillyDir.mkdirs()
-                    versionFile.writeText(appVersion)
+                    // 影子同样用 app 自带 libnode.so，其依赖的 .so 需落盘
+                    // （用户可能从未跑过「启动」模式，node-bin 尚未解压）
+                    val soCheck = File(filesDir, "sillytavern/node-bin")
+                    if (!soCheck.isDirectory || soCheck.listFiles().isNullOrEmpty()) {
+                        updateNotification("正在准备运行组件...")
+                        try {
+                            ExtractAssets(this).extractResources("sillytavern/node-bin")
+                        } catch (e: Exception) {
+                            lastErrorPublic = "运行组件解压失败: ${e.message}"
+                            Log.e(TAG, lastErrorPublic, e)
+                            updateNotification(lastErrorPublic)
+                            sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
+                            return@thread
+                        }
+                    }
                 } else {
-                    Log.i(TAG, "Assets already extracted, skipping")
+                    val sillyDir = File(filesDir, "sillytavern")
+                    val versionFile = File(sillyDir, ".extracted_version")
+                    val extractingFlag = File(sillyDir, ".extracting")
+
+                    // 版本不匹配，或上次解压被中断（.extracting 仍存在）→ 需要重新解压
+                    val needExtract = !versionFile.exists()
+                            || versionFile.readText().trim() != appVersion
+                            || extractingFlag.exists()
+
+                    if (needExtract) {
+                        updateNotification("正在解压资源文件...")
+                        Log.i(TAG, "Extracting assets to $filesDir")
+
+                        val extractAssets = ExtractAssets(this)
+                        try {
+                            // app/ 走单流 zip 解压（原子落地，杜绝半解压后误启动 Node）
+                            extractAssets.extractZipArchive(
+                                "sillytavern/app.zip", sillyDir
+                            )
+                            // node-bin/ 数量少，仍走散件解压
+                            extractAssets.extractResources("sillytavern/node-bin")
+                        } catch (e: Exception) {
+                            // 解压失败：写明错误并广播失败，绝不带半状态启动 Node
+                            lastErrorPublic = "资源解压失败: ${e.message}"
+                            Log.e(TAG, lastErrorPublic, e)
+                            updateNotification(lastErrorPublic)
+                            sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
+                            return@thread
+                        }
+
+                        // 全部成功后写版本号；.extracting 标记已被解压器清除
+                        sillyDir.mkdirs()
+                        versionFile.writeText(appVersion)
+                    } else {
+                        Log.i(TAG, "Assets already extracted, skipping")
+                    }
                 }
 
                 // node 已作为 libnode.so 打包进 jniLibs，系统自动安装到 nativeLibraryDir（可执行）
@@ -182,21 +223,26 @@ class NodeService : Service() {
                 Log.i(TAG, "Node binary ready: ${nodeBin.absolutePath}")
 
                 // 2. 修正已有的 config.yaml（首次启动时还不存在，由 Node 生成；
-                //    此处处理非首次启动场景，防御性地保证 browserLaunch 关闭）
-                sanitizeConfig(File(filesDir, "sillytavern/app/config.yaml"))
+                //    此处处理非首次启动场景，防御性地保证 browserLaunch 关闭、端口 8000）
+                val configFile = if (isShadow) File(shadowDir!!, "config.yaml")
+                                 else File(filesDir, "sillytavern/app/config.yaml")
+                sanitizeConfig(configFile)
 
-                // 3. 启动 Node
+                // 3. 启动 Node（影子：复制来的目录即酒馆根；启动：app/ 下为代码、data/ 为数据）
                 updateNotification("正在启动服务器...")
                 val nodePath = nodeBin.absolutePath
-                val serverPath = File(filesDir, "sillytavern/app/server.js").absolutePath
-                val dataRoot = File(filesDir, "sillytavern/data").absolutePath
+                val serverPath = if (isShadow) File(shadowDir!!, "server.js").absolutePath
+                                 else File(filesDir, "sillytavern/app/server.js").absolutePath
+                val dataRoot = if (isShadow) File(shadowDir!!, "data").absolutePath
+                               else File(filesDir, "sillytavern/data").absolutePath
+                val workDir = if (isShadow) shadowDir!! else File(filesDir, "sillytavern/app")
                 File(dataRoot).mkdirs()
 
                 Log.i(TAG, "Starting: $nodePath $serverPath --dataRoot $dataRoot")
 
                 val pb = ProcessBuilder(nodePath, serverPath, "--dataRoot", dataRoot)
-                pb.directory(File(filesDir, "sillytavern/app"))
-                pb.environment()["HOME"] = filesDir
+                pb.directory(workDir)
+                pb.environment()["HOME"] = if (isShadow) workDir.absolutePath else filesDir
                 pb.environment()["NODE_ENV"] = "production"
                 pb.environment()["LD_LIBRARY_PATH"] = soDir.absolutePath
                 // Android 使用内置 WebView，无需 Node 端自动打开浏览器。
@@ -215,7 +261,7 @@ class NodeService : Service() {
                     isRunning = true
                     Log.i(TAG, "Server ready")
                     // 服务器就绪后，修正首次启动生成的 config.yaml（防御纵深）
-                    sanitizeConfig(File(filesDir, "sillytavern/app/config.yaml"))
+                    sanitizeConfig(configFile)
                     updateNotification("SillyTavern 正在运行")
                     sendBroadcast(Intent(BROADCAST_SERVER_READY))
                 } else {
@@ -328,7 +374,7 @@ class NodeService : Service() {
     }
 
     /**
-     * 防御性地修正 config.yaml 中 Android 环境不安全的配置项。
+     * 防御性地修正 config.yaml 中 Android 环境不安全/不一致的配置项。
      *
      * 双保险 ②：环境变量已覆盖 getConfigValue，此处再修正文件本身，
      * 确保即使上游修改 env 机制，config 文件层面也是安全的。
@@ -342,11 +388,15 @@ class NodeService : Service() {
                 // browserLaunch.enabled: true → false （xdg-open 不存在会导致进程崩溃）
                 .replace(
                     Regex("(\\nbrowserLaunch:\\n(\\s+)enabled:\\s*)true"),
-                    "\$1false"
+                    "$1false"
                 )
+                // 端口统一 8000（app WebView 硬编码 8000；影子 config 复制自 Termux，可能改过端口）
+                .replace(
+                    Regex("(\\nport:\\s*)[0-9]+")
+                ) { m -> m.groupValues[1] + "8000" }
             if (patched != content) {
                 configFile.writeText(patched)
-                Log.i(TAG, "Config sanitized: browserLaunch disabled")
+                Log.i(TAG, "Config sanitized: browserLaunch disabled, port=8000")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not sanitize config: ${e.message}")

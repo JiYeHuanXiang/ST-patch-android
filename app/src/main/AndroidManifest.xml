@@ -12,6 +12,8 @@
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND"
+        tools:ignore="ManifestPermission" />
 
     <application
         android:allowBackup="true"
@@ -24,16 +26,53 @@
         android:extractNativeLibs="true"
         tools:targetApi="31">
 
-        <!-- 启动页：应用入口 -->
+        <!-- 模式选择页：应用入口（取代直接启动） -->
         <activity
-            android:name=".SplashActivity"
+            android:name=".ModeSelectActivity"
             android:exported="true"
-            android:theme="@style/Theme.STPatch.Splash">
+            android:theme="@style/Theme.STPatch.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 启动页：自带内核模式（由 ModeSelectActivity 调起） -->
+        <activity
+            android:name=".SplashActivity"
+            android:exported="false"
+            android:theme="@style/Theme.STPatch.Splash" />
+
+        <!-- 接管模式（经 Termux RUN_COMMAND） -->
+        <activity
+            android:name=".TakeoverActivity"
+            android:exported="false"
+            android:theme="@style/Theme.STPatch.NoActionBar" />
+
+        <!-- 数据迁移（把 Termux 原版酒馆数据迁入 app 自带内核） -->
+        <activity
+            android:name=".PatchActivity"
+            android:exported="false"
+            android:theme="@style/Theme.STPatch.NoActionBar" />
+
+        <!-- 修补模式（用 app 补丁版酒馆覆盖 Termux 原版代码，保留数据） -->
+        <activity
+            android:name=".PatchUpgradeActivity"
+            android:exported="false"
+            android:theme="@style/Theme.STPatch.NoActionBar" />
+
+        <!-- 影子模式（复制 Termux 酒馆整目录进 app，复制-once，自带内核运行） -->
+        <activity
+            android:name=".ShadowActivity"
+            android:exported="false"
+            android:theme="@style/Theme.STPatch.NoActionBar" />
+
+        <!-- 配置编辑器（编辑 app 自带内核私有目录里的 config.yaml） -->
+        <activity
+            android:name=".ConfigEditorActivity"
+            android:exported="false"
+            android:theme="@style/Theme.STPatch.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
 
         <!-- WebView 全屏容器 -->
         <activity
@@ -54,6 +93,12 @@
         <!-- Node.js 前台服务 -->
         <service
             android:name=".NodeService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- 接管守卫前台服务（beacon 端口 + 生命周期，确保 app 退出时 Termux 酒馆跟随停止） -->
+        <service
+            android:name=".TakeoverGuardService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

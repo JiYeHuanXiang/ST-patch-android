@@ -27,6 +27,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import com.st.patch.common.TakeoverBeacon
+import com.st.patch.common.TermuxBridge
 import java.io.File
 
 /**
@@ -38,6 +40,9 @@ class WebViewActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_URL = "target_url"
         const val DEFAULT_URL = "http://127.0.0.1:8000"
+        const val EXTRA_STOP_MODE = "stop_mode"
+        const val STOP_MODE_BUNDLED = "bundled"
+        const val STOP_MODE_TERMUX = "termux"
     }
 
     private lateinit var webView: WebView
@@ -145,9 +150,19 @@ class WebViewActivity : AppCompatActivity() {
                             when (which) {
                                 0 -> reloadWebView()
                                 1 -> {
-                                    // 停止 NodeService 并退出
-                                    val serviceIntent = Intent(this@WebViewActivity, NodeService::class.java)
-                                    stopService(serviceIntent)
+                                    // 停止服务器并退出：按启动模式分发
+                                    when (this@WebViewActivity.intent.getStringExtra(EXTRA_STOP_MODE)) {
+                                        STOP_MODE_TERMUX -> {
+                                            TakeoverBeacon.close()
+                                            TermuxBridge.stopTermuxSt(this@WebViewActivity)
+                                            TermuxBridge.releaseWakeLock(this@WebViewActivity)
+                                            stopService(Intent(this@WebViewActivity, TakeoverGuardService::class.java))
+                                        }
+                                        else -> {
+                                            val serviceIntent = Intent(this@WebViewActivity, NodeService::class.java)
+                                            stopService(serviceIntent)
+                                        }
+                                    }
                                     finish()
                                 }
                             }

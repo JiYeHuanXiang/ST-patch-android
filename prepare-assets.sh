@@ -41,8 +41,10 @@ echo ""
 echo "[2/4] 复制 SillyTavern 源码..."
 
 # 核心启动文件
+# 注意：config.yaml 不打包——它是开发者本地配置，端口可能与 app 硬编码的 8000 不一致
+# （如本仓库为 8100）。运行时由 Node 从 default/config.yaml 生成，再由 NodeService.sanitizeConfig 修正。
 for f in server.js package.json package-lock.json webpack.config.js \
-         plugins.js post-install.js jsconfig.json index.d.ts config.yaml LICENSE; do
+         plugins.js post-install.js jsconfig.json index.d.ts LICENSE; do
     if [ -f "$PROJECT_ROOT/$f" ]; then
         cp "$PROJECT_ROOT/$f" "$ASSETS_DIR/app/"
         echo "  ✓ $f"
@@ -58,6 +60,13 @@ for d in src public default; do
         echo "  ✓ $d/"
     fi
 done
+
+# 补丁版自描述标记：原版与补丁版酒馆的特征文件完全相同（server.js + package.json），
+# Termux 侧脚本（apply.sh 等）靠 .st-patch-build 区分：无标记=原版；有标记=补丁版，
+# 版本与当前补丁包不一致=旧补丁（可覆盖升级），一致则跳过。
+VERSION_NAME="$(grep -m1 'versionName' "$SCRIPT_DIR/app/build.gradle" 2>/dev/null | sed 's/.*"\([^"]*\)".*/\1/' || true)"
+printf '%s\n' "${VERSION_NAME:-unknown}" > "$ASSETS_DIR/app/.st-patch-build"
+echo "  ✓ .st-patch-build（${VERSION_NAME:-unknown}）"
 
 # 3. 复制 node_modules（仅 production 依赖）
 echo ""
