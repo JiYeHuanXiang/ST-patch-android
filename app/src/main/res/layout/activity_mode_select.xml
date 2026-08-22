@@ -40,9 +40,19 @@
             android:id="@+id/btnLaunch"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="8dp"
             android:text="启动（自带内核，免 Termux）"
             android:backgroundTint="#FF03DAC5"
+            android:textColor="#FFFFFFFF" />
+
+        <!-- 文件管理：角色卡公共目录映射（可选） -->
+        <Button
+            android:id="@+id/btnPublicChars"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:text="文件管理（角色卡公共目录）"
+            android:backgroundTint="#5A5A5D"
             android:textColor="#FFFFFFFF" />
 
         <!-- 接管模式 -->
@@ -296,12 +306,22 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- 存储权限：申请管理所有文件权限（部分机型导入角色卡/文件所需） -->
+        <Button
+            android:id="@+id/btnStoragePerm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="存储权限（无法导入角色卡时点此）"
+            android:backgroundTint="#3A3A3D"
+            android:textColor="#FFFFFFFF" />
+
         <!-- 设置：编辑 app 自带内核私有目录里的 config.yaml（内置编辑器是唯一入口） -->
         <Button
             android:id="@+id/btnSettings"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="8dp"
             android:text="设置（编辑酒馆 config.yaml）"
             android:backgroundTint="#3A3A3D"
             android:textColor="#FFFFFFFF" />

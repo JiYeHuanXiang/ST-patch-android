@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import com.st.patch.common.ExtractAssets
+import com.st.patch.common.PublicCharactersLinker
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -237,6 +238,12 @@ class NodeService : Service() {
                                else File(filesDir, "sillytavern/data").absolutePath
                 val workDir = if (isShadow) shadowDir!! else File(filesDir, "sillytavern/app")
                 File(dataRoot).mkdirs()
+
+                // 角色卡公共目录映射（可选）：按用户开关把 characters 目录制为公有目录符号链接。
+                // 补丁版(启动模式)与原版(影子模式)目录严格分离，互不干扰。
+                val variant = if (isShadow) PublicCharactersLinker.VARIANT_SHADOW
+                              else PublicCharactersLinker.VARIANT_PATCH
+                PublicCharactersLinker.applyForCharactersDir(this, File(dataRoot, "default-user/characters"), variant)
 
                 Log.i(TAG, "Starting: $nodePath $serverPath --dataRoot $dataRoot")
 
