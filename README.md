@@ -1,6 +1,6 @@
 # SillyTavern Patch (Android)
 
-> 将 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 完整移植到 Android 平台，**无需 Termux**，点击即启动。
+> 将 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 移植到 Android 平台。自带内核模式**无需 Termux**，点击即启动；也可经 Termux 接管/迁移/修补/影子化已有的酒馆安装。
 
 本项目是 [JiYeHuanXiang/sillytavern-patch](https://github.com/JiYeHuanXiang/sillytavern-patch) 的衍生作品，旨在尽可能降低移动端游玩门槛。
 
@@ -8,15 +8,30 @@
 
 ## 概述
 
-我们将完整的 SillyTavern（Node.js 后端 + Web 前端）打包进一个 Android APK 中。安装后直接打开应用，即可在手机上体验完整的 SillyTavern，无需安装 Termux 或任何额外环境。
+我们将完整的 SillyTavern（Node.js 后端 + Web 前端）打包进一个 Android APK 中，并内嵌 Node.js 运行时（ARM64）。打开应用后进入**模式选择页**，按需选择运行方式：既可零依赖地用 app 自带内核启动，也可与 Termux 中已有的酒馆安装互操作（接管、迁移、修补、影子）。
+
+### 五种模式
+
+| 模式 | 入口 | 说明 |
+|------|------|------|
+| **启动** | `SplashActivity` | app 自带内核（libnode + 内置酒馆源码），免 Termux，等价最早的自动启动流程 |
+| **接管** | `TakeoverActivity` | 经 Termux RUN_COMMAND 原地启动其目录下的酒馆，app WebView 打开 `127.0.0.1:8000`，不复制文件，退出即停 |
+| **数据迁移** | `PatchActivity` | 把 Termux 原版酒馆的用户数据迁入 app 自带内核 |
+| **修补** | `PatchUpgradeActivity` | 用 app 补丁版酒馆覆盖 Termux 原版酒馆的代码，保留已有数据 |
+| **影子** | `ShadowActivity` | 把 Termux 酒馆整目录复制进 app（一次性复制），由 app 自带内核运行，与 Termux 解耦 |
+
+> 除「启动」外，其余四种均需 Termux，并要求在 `~/.termux/termux.properties` 中设置 `allow-external-apps = true` 后执行 `termux-reload-settings`。酒馆目录名不限，使用时自动扫描识别。
 
 ### 核心特性
 
-- **一键启动** — 安装后打开即用，自动完成服务部署
+- **多模式架构** — 自带内核零依赖启动，或与 Termux 酒馆互操作，同一入口按需选择
 - **自包含运行** — 内嵌 Node.js 运行时（ARM64）及全部 npm 依赖
 - **原生 WebView** — 全屏沉浸式体验，与浏览器端完全一致的界面
 - **完整功能保留** — 支持角色管理、对话、角色卡上传、聊天导出等所有 SillyTavern 特性
 - **常驻服务** — 前台服务保证 Node.js 进程在后台稳定运行
+- **公共角色卡目录** — 可将角色卡映射到 `Download/SillyTavern/` 下的公有目录，用系统文件管理器直接增删（按版本隔离，详见下文）
+- **配置编辑器** — 应用内直接编辑自带内核私有目录的 `config.yaml`
+- **无 root 运行** — 全部互操作经 Termux RUN_COMMAND，不依赖 root
 
 ---
 
@@ -28,6 +43,20 @@
 | `assets/sillytavern/app/` | 完整的 SillyTavern 源码（含 `node_modules`） |
 | `ExtractAssets` | 迭代式解压，避免 14000+ 文件导致栈溢出 |
 | 双保险就绪检测 | 广播 + HTTP 轮询双重机制确保 WebView 正确加载 |
+| `TermuxBridge` / `TermuxScripts` | 经 RUN_COMMAND 与 Termux 交互、注入启动脚本 |
+| `TakeoverBeacon` / `TakeoverGuardService` | 接管模式信标端口 + 生命周期守卫，app 退出时酒馆跟随停止 |
+| `PublicCharactersLinker` | 角色卡公有目录映射，补丁版与原版（影子）严格隔离 |
+
+### 角色卡公共目录
+
+启用后，角色卡被映射到设备公共存储，可用系统文件管理器直接增删（PNG/JSON），递归支持子目录。两个版本各自独立，互不干扰：
+
+| 版本 | 公共目录 |
+|------|----------|
+| 补丁版（启动模式） | `Download/SillyTavern/patch/characters` |
+| 原版（影子模式） | `Download/SillyTavern/shadow/characters` |
+
+> 该功能需 Android 11 以上及「所有文件访问权限」。原版（影子）选项仅在影子副本已创建时出现。关闭时角色卡迁回应用私有目录。目录内放置 `.nomedia` 防止角色卡图片进入相册。
 
 ---
 
@@ -57,7 +86,7 @@ cp local.properties.example local.properties
 ./gradlew assembleRelease     # Windows: gradlew.bat assembleRelease
 ```
 
-> **注意**：`prepare-assets` 脚本会从同级目录的 SillyTavern 源码中复制 `server.js`、`src/`、`public/`、`default/` 及 `node_modules/`（自动清理 `.d.ts`、`.map`、测试文件等冗余内容）到 `assets/sillytavern/app/`。
+> **注意**：`prepare-assets` 脚本会从同级目录的 SillyTavern 源码中复制 `server.js`、`src/`、`public/`、`default/` 及 `node_modules/`（清理 `.d.ts`、`.map`、测试目录等冗余内容，但**保留 `@types/`** 以维持 webpack 文件系统缓存，避免每次启动全量重编译）到 `assets/sillytavern/app/`。
 
 ### 产物
 
@@ -89,20 +118,33 @@ Android/
 ├── app/
 │   ├── build.gradle             # 应用模块配置
 │   └── src/main/
-│       ├── AndroidManifest.xml  # 四大组件声明
+│       ├── AndroidManifest.xml  # 组件声明（入口 + 五模式 + 服务）
 │       ├── jniLibs/arm64-v8a/
 │       │   └── libnode.so       # 预编译 Node.js 运行时 (~50MB)
 │       ├── assets/sillytavern/
 │       │   ├── node-bin/        # Termux 共享库 (.so)
 │       │   └── app/             # SillyTavern 完整源码 (由 prepare-assets 生成)
 │       ├── java/com/st/patch/
-│       │   ├── SplashActivity.kt    # 启动页
-│       │   ├── NodeService.kt       # Node.js 进程管理器 (前台服务)
-│       │   ├── WebViewActivity.kt   # SillyTavern WebView 壳
-│       │   ├── MainActivity.kt      # 废弃入口 (重定向至 SplashActivity)
+│       │   ├── ModeSelectActivity.kt      # 应用入口：模式选择页
+│       │   ├── SplashActivity.kt          # 启动模式：自带内核流程
+│       │   ├── TakeoverActivity.kt        # 接管模式：经 RUN_COMMAND 接管 Termux 酒馆
+│       │   ├── PatchActivity.kt           # 数据迁移：Termux 数据迁入自带内核
+│       │   ├── PatchUpgradeActivity.kt    # 修补模式：补丁版代码覆盖 Termux 原版
+│       │   ├── ShadowActivity.kt          # 影子模式：复制 Termux 酒馆目录后自带内核运行
+│       │   ├── ConfigEditorActivity.kt    # 配置编辑器：编辑自带内核 config.yaml
+│       │   ├── WebViewActivity.kt         # SillyTavern WebView 全屏容器
+│       │   ├── NodeService.kt             # Node.js 前台服务（进程管理）
+│       │   ├── TakeoverGuardService.kt    # 接管守卫前台服务（信标 + 生命周期）
+│       │   ├── MainActivity.kt            # 旧入口（保留，不再是启动入口）
 │       │   └── common/
-│       │       ├── ExtractAssets.java   # 迭代式资产解压器
-│       │       └── FileWrite.kt         # 文件读写工具
+│       │       ├── ExtractAssets.java       # 迭代式资产解压器
+│       │       ├── FileWrite.kt             # 文件读写工具
+│       │       ├── TermuxBridge.kt          # Termux RUN_COMMAND 桥接
+│       │       ├── TermuxScripts.kt         # 注入 Termux 的启动脚本
+│       │       ├── ConfigPatcher.kt        # config.yaml 修补（端口/路径注入）
+│       │       ├── PatchExporter.kt        # 补丁包导出
+│       │       ├── TakeoverBeacon.kt       # 接管信标端口探测
+│       │       └── PublicCharactersLinker.kt # 角色卡公有目录映射
 │       └── res/                 # 资源文件 (布局、主题、图标)
 ```
 

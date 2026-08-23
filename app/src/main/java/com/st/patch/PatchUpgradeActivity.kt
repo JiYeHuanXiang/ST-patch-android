@@ -10,6 +10,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.st.patch.common.PatchExporter
@@ -22,7 +23,10 @@ import kotlin.concurrent.thread
  * 原版酒馆（目录名任意，脚本内特征扫描自动识别）的代码。app.zip 仅含代码（不含 data/ 与 config.yaml），
  * 故覆盖即升级代码，用户角色卡/聊天/设置不动。覆盖后用「接管」模式运行。
  * 原版与补丁版特征文件相同，脚本以 app.zip 内的 .st-patch-build 版本标记区分：
- * 只覆盖原版或旧版补丁；已是当前补丁版的候选跳过。
+ * 只覆盖原版或旧版补丁；已是当前补丁版的候选跳过。版本不一致按方向判定——
+ * 全量覆盖是酒馆官方更新方式，补丁底座 ≥ 目标=可覆盖（同版直接修、高底座覆盖低版=升修补）；
+ * 补丁底座 < 目标=降级（一律拒绝，unzip -o 不删旧文件会残留混合态）。
+ * 升修补时脚本回传 direction=upgradeable，本页展示「更新并修补」按钮供用户确认后才放行。
  *
  * app 不能读/写 Termux 私有目录，故走：app 导出 app.zip + apply.sh 到 Download → 拉起 Termux
  * （launcher 绕开 OPPO 服务拦截）→ Termux 自行 unzip 覆盖其酒馆目录。尽量自动投递 apply.sh；
@@ -30,7 +34,7 @@ import kotlin.concurrent.thread
  *
  * 结果反馈：RUN_COMMAND 无执行回传通道，apply.sh 结束时把结果覆写到 app 预创建的
  * patch-result.txt（app 经 MediaStore 创建、归自己所有 → 免权限读回；Termux 经 FUSE 覆写）。
- * 投递后轮询该文件（3 分钟超时），按 ok / skipped / error / 超时给出对应界面；
+ * 投递后轮询该文件（3 分钟超时），按 ok / skipped / version_mismatch / error / 超时给出对应界面；
  * 冷 Termux 首投被 OPPO 静默拦截时在 2 秒后按「仍无结果」补投一次。
  */
 class PatchUpgradeActivity : AppCompatActivity() {
@@ -43,8 +47,11 @@ class PatchUpgradeActivity : AppCompatActivity() {
         private const val REDISPATCH_AT_SEC = 2
     }
 
-    /** apply.sh 回写的执行结果（status=ok|skipped|error|pending） */
-    private data class ApplyResult(val status: String, val target: String, val version: String, val detail: String)
+    /** apply.sh 回写的执行结果（status=ok|skipped|version_mismatch|error|pending；direction=upgradeable|blocked） */
+    private data class ApplyResult(
+        val status: String, val target: String, val version: String,
+        val direction: String, val detail: String
+    )
 
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
@@ -110,7 +117,33 @@ class PatchUpgradeActivity : AppCompatActivity() {
         }
     }
 
-    private fun onPatchClicked() {
+    private fun onPatchClicked() = dispatchPatch()
+
+    /** 升修补确认：重新导出允许升级的 apply.sh（ALLOW_UPGRADE=1）后再投递执行 */
+    private fun onUpgradePatchClicked() {
+        // 重置结果文件，避免立刻读到上一轮的 version_mismatch 旧结果
+        val rf = PatchExporter.writeTextFile(this, RESULT_NAME, "status=pending\n")
+        resultUri = rf?.uri
+        progressBar.visibility = View.VISIBLE
+        statusText.text = "正在重新生成升修补脚本…"
+        thread(name = "upgrade-regen", isDaemon = true) {
+            if (isFinishing || isDestroyed) return@thread
+            val sh = PatchExporter.writeTextToDownloads(this, "apply.sh", TermuxScripts.applyScript(allowUpgrade = true))
+            Log.i(TAG, "regen apply.sh(upgrade)=$sh")
+            if (sh == null) {
+                showFinal("导出升修补脚本失败。")
+                return@thread
+            }
+            runOnUiThread {
+                shPath = sh
+                statusText.text = "已生成升修补脚本，正在投递 Termux 执行…"
+                dispatchPatch()
+            }
+        }
+    }
+
+    /** 投递当前 apply.sh（shPath）到 Termux 执行，按 RUN_COMMAND 权限有无分支处理 */
+    private fun dispatchPatch() {
         val sh = shPath ?: return
         progressBar.visibility = View.VISIBLE
         val hasPerm =
@@ -193,7 +226,10 @@ class PatchUpgradeActivity : AppCompatActivity() {
                     if (i > 0) map[line.substring(0, i).trim()] = line.substring(i + 1)
                 }
                 val st = map["status"] ?: return null
-                ApplyResult(st, map["target"] ?: "", map["version"] ?: "", map["detail"] ?: "")
+                ApplyResult(
+                    st, map["target"] ?: "", map["version"] ?: "",
+                    map["direction"] ?: "", map["detail"] ?: ""
+                )
             }
         } catch (_: Exception) {
             null
@@ -218,6 +254,42 @@ class PatchUpgradeActivity : AppCompatActivity() {
                 actionButton.text = "完成"
                 actionButton.setOnClickListener { finish() }
                 importButton.visibility = View.GONE
+            }
+            "version_mismatch" -> {
+                if (r.direction == "upgradeable") {
+                    // 补丁底座高于目标酒馆——全量覆盖是酒馆官方更新方式，合法，需用户确认放行
+                    statusText.text = "可升修补：${r.detail}"
+                    actionButton.visibility = View.GONE
+                    importButton.visibility = View.GONE
+                    AlertDialog.Builder(this)
+                        .setTitle("可升修补")
+                        .setMessage(
+                            "检测到版本差异：${r.detail}\n\n" +
+                            "当前补丁底座版本高于目标酒馆，全量覆盖（酒馆官方更新方式）后" +
+                            "代码升级为补丁版，你的角色卡/聊天/设置等数据不受影响。\n\n" +
+                            "是否确认执行升修补？"
+                        )
+                        .setPositiveButton("更新并修补") { _, _ -> onUpgradePatchClicked() }
+                        .setNegativeButton("取消", null)
+                        .setCancelable(true)
+                        .show()
+                } else {
+                    // 降级方向——unzip -o 不删旧文件，会残留新版本代码文件，一律拒绝
+                    statusText.text = "已跳过：${r.detail}"
+                    actionButton.visibility = View.GONE
+                    importButton.visibility = View.GONE
+                    AlertDialog.Builder(this)
+                        .setTitle("目标版本不匹配")
+                        .setMessage(
+                            "${r.detail}\n\n" +
+                            "目标酒馆版本高于本补丁包底座版本，降级覆盖不安全：" +
+                            "unzip -o 只覆盖不删除旧文件，会残留高版本的新代码文件，造成混合态。\n\n" +
+                            "请换更高底座的补丁包再试。"
+                        )
+                        .setPositiveButton("确定", null)
+                        .setCancelable(false)
+                        .show()
+                }
             }
             else -> {
                 statusText.text = "修补未完成：${r.detail}\n详情见 Download/st-patch/apply-debug.log。"
