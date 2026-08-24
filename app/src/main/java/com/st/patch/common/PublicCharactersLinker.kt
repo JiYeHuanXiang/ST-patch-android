@@ -54,6 +54,24 @@ object PublicCharactersLinker {
     private fun publicDir(variant: String): File =
         File(Environment.getExternalStorageDirectory(), "Download/SillyTavern/$variant/characters")
 
+    /**
+     * 指定版本私有 characters 目录路径（dataRoot/default-user/characters）。
+     *
+     * - 补丁版：filesDir/sillytavern/data/default-user/characters
+     * - 原版（影子）：filesDir/sillytavern-shadow/data/default-user/characters
+     *
+     * 该目录在酒馆首次成功运行后由后端创建（非 NodeService 的 mkdirs，后者只建 data/）。
+     * 启用公共目录映射前应校验其存在，否则 [ensureLinked] 因父目录缺失而静默跳过。
+     * 路径须与 NodeService 的 dataRoot 拼接保持一致。
+     */
+    fun privateCharactersDir(context: Context, variant: String): File {
+        val dataRoot = if (variant == VARIANT_SHADOW)
+            File(context.filesDir, "sillytavern-shadow/data")
+        else
+            File(context.filesDir, "sillytavern/data")
+        return File(dataRoot, "default-user/characters")
+    }
+
     /** 是否具备管理所有文件权限（Android 11+） */
     fun hasManagePermission(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&

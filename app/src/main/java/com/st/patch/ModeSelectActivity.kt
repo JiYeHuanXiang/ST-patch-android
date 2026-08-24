@@ -295,6 +295,16 @@ class ModeSelectActivity : AppCompatActivity() {
     }
 
     private fun confirmEnable(variant: String, label: String) {
+        // 校验酒馆已运行过：data/default-user/characters 须由后端生成，
+        // 否则符号链接因父目录缺失而静默失败
+        if (!PublicCharactersLinker.privateCharactersDir(this, variant).exists()) {
+            AlertDialog.Builder(this)
+                .setTitle("${label}酒馆尚未运行")
+                .setMessage("需先启动一次酒馆，待角色卡数据目录生成后再启用公共目录角色卡。")
+                .setPositiveButton("确定", null)
+                .show()
+            return
+        }
         AlertDialog.Builder(this)
             .setTitle("启用${label}公共目录角色卡")
             .setMessage(
