@@ -1,23 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#202124"
+    android:background="@drawable/bg_app"
     android:orientation="vertical"
     android:gravity="center"
-    android:padding="20dp">
+    android:padding="24dp">
 
-    <ImageView
+    <FrameLayout
         android:layout_width="72dp"
         android:layout_height="72dp"
-        android:layout_marginBottom="12dp"
-        android:src="@mipmap/ic_launcher" />
+        android:layout_marginBottom="14dp"
+        android:background="@drawable/bg_icon_box"
+        android:backgroundTint="@color/st_takeover_box">
+
+        <ImageView
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_mode_takeover"
+            app:tint="@color/st_takeover" />
+    </FrameLayout>
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="接管模式"
-        android:textColor="#FFFFFFFF"
+        android:textColor="@color/st_text_primary"
         android:textSize="20sp"
         android:textStyle="bold"
         android:layout_marginBottom="16dp" />
@@ -27,28 +37,34 @@
         style="?android:attr/progressBarStyleLarge"
         android:layout_width="40dp"
         android:layout_height="40dp"
-        android:layout_marginBottom="10dp"
-        android:indeterminateTint="#FF03DAC5" />
+        android:layout_marginBottom="12dp"
+        android:indeterminateTint="@color/st_accent" />
 
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="正在经 Termux 接管启动 SillyTavern..."
-        android:textColor="#BFFFFFFF"
+        android:textColor="@color/st_text_secondary"
         android:textSize="14sp"
         android:gravity="center"
         android:paddingStart="16dp"
         android:paddingEnd="16dp" />
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/retryButton"
+        style="@style/Widget.STPatch.Button.Outlined"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_height="44dp"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:layout_marginTop="14dp"
         android:visibility="gone"
         android:text="重试"
-        android:backgroundTint="#FF03DAC5"
-        android:textColor="#FFFFFFFF" />
+        app:icon="@drawable/ic_refresh"
+        app:iconGravity="textStart"
+        app:iconPadding="8dp"
+        app:iconSize="16dp"
+        app:iconTint="@color/st_accent" />
 
 </LinearLayout>

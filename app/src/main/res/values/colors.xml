@@ -1,14 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- ===== 基础色 ===== -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- ===== 深色主题调色板（ST Patch 设计系统） ===== -->
+    <!-- 背景与表面 -->
+    <color name="st_bg">#FF0C0F13</color>
+    <color name="st_bg_gradient_top">#FF161B22</color>
+    <color name="st_bg_gradient_bottom">#FF0A0D11</color>
+    <color name="st_card">#FF161B22</color>
+    <color name="st_card_inner">#FF10141A</color>
+    <color name="st_card_stroke">#FF232B36</color>
+    <color name="st_console">#FF0A0D12</color>
+
+    <!-- 主色：薄荷绿（沿用酒馆青绿气质） -->
+    <color name="st_accent">#FF2BDFAF</color>
+    <color name="st_accent_dim">#FF17B78C</color>
+    <color name="st_on_accent">#FF052A20</color>
+    <color name="st_accent_box">#262BDFAF</color>
+    <color name="st_ripple">#332BDFAF</color>
+
+    <!-- 文本 -->
+    <color name="st_text_primary">#FFF0F4F8</color>
+    <color name="st_text_secondary">#FF98A6B3</color>
+    <color name="st_text_hint">#FF5E6B78</color>
+    <color name="st_log_text">#FFC7D0D9</color>
+
+    <!-- 各模式点缀色 -->
+    <color name="st_takeover">#FFFFC964</color>
+    <color name="st_takeover_box">#29FFC964</color>
+    <color name="st_migrate">#FF6FB3FF</color>
+    <color name="st_migrate_box">#296FB3FF</color>
+    <color name="st_patch">#FFB99CFF</color>
+    <color name="st_patch_box">#29B99CFF</color>
+    <color name="st_shadow">#FF9DB2C7</color>
+    <color name="st_shadow_box">#299DB2C7</color>
+
+    <!-- 控件表面 -->
+    <color name="st_tonal">#FF1C232C</color>
+    <color name="st_dialog_bg">#FF1A1F27</color>
+    <color name="st_progress_track">#FF232B34</color>
+
+    <!-- 兼容旧引用 -->
     <color name="purple_200">#FFBB86FC</color>
     <color name="purple_500">#FF6200EE</color>
     <color name="purple_700">#FF3700B3</color>
     <color name="teal_200">#FF03DAC5</color>
     <color name="teal_700">#FF018786</color>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
-    <!-- SillyTavern 主题色 -->
     <color name="st_background">#FF202124</color>
     <color name="st_background_dark">#FF121216</color>
-    <color name="st_accent">#FF03DAC5</color>
 </resources>

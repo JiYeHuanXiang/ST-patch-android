@@ -39,7 +39,7 @@
 
 | 组件 | 作用 |
 |------|------|
-| `libnode.so` | 预编译的 ARM64 Node.js 可执行文件，存放在 `jniLibs/` |
+| `libnode.so` | 预编译的 Node.js 可执行文件（arm64-v8a 与 x86_64 各一份），存放在 `jniLibs/<abi>/` |
 | `assets/sillytavern/app/` | 完整的 SillyTavern 源码（含 `node_modules`） |
 | `ExtractAssets` | 迭代式解压，避免 14000+ 文件导致栈溢出 |
 | 双保险就绪检测 | 广播 + HTTP 轮询双重机制确保 WebView 正确加载 |
@@ -96,11 +96,11 @@ cp local.properties.example local.properties
 
 ## 支持设备
 
-- **CPU 架构**：仅 ARM64（`arm64-v8a`）
+- **CPU 架构**：ARM64（`arm64-v8a`）与 x86_64（模拟器调试）
 - **最低系统**：Android 8.0 (API 26)
 - **推荐系统**：Android 11+ (API 30+)
 
-> 非 arm64-v8a 设备（如 x86 模拟器）无法运行，因 `libnode.so` 仅预编译了 ARM64 版本。
+> x86_64 支持用于在 Android 模拟器中调试；内置 Node.js 运行组件按 ABI 分目录（`jniLibs/<abi>/libnode.so` + `assets/sillytavern/node-bin/<abi>/*.so`），安装时自动选择匹配架构。
 
 ---
 
@@ -119,10 +119,11 @@ Android/
 │   ├── build.gradle             # 应用模块配置
 │   └── src/main/
 │       ├── AndroidManifest.xml  # 组件声明（入口 + 五模式 + 服务）
-│       ├── jniLibs/arm64-v8a/
-│       │   └── libnode.so       # 预编译 Node.js 运行时 (~50MB)
+│       ├── jniLibs/
+│       │   ├── arm64-v8a/libnode.so   # 预编译 Node.js 运行时 (~50MB)
+│       │   └── x86_64/libnode.so      # 同上，x86_64 版（模拟器调试）
 │       ├── assets/sillytavern/
-│       │   ├── node-bin/        # Termux 共享库 (.so)
+│       │   ├── node-bin/<abi>/  # Termux 共享库 (.so，按 ABI 分目录)
 │       │   └── app/             # SillyTavern 完整源码 (由 prepare-assets 生成)
 │       ├── java/com/st/patch/
 │       │   ├── ModeSelectActivity.kt      # 应用入口：模式选择页
@@ -147,6 +148,19 @@ Android/
 │       │       └── PublicCharactersLinker.kt # 角色卡公有目录映射
 │       └── res/                 # 资源文件 (布局、主题、图标)
 ```
+
+---
+
+## 运行组件来源
+
+内置 Node.js 运行组件取自 [Termux](https://packages.termux.dev/apt/termux-main/) 仓库（当前为 Node.js 26.4.0），按 ABI 分目录存放：
+
+| 位置 | 内容 |
+|------|------|
+| `app/src/main/jniLibs/<abi>/libnode.so` | Termux `nodejs` 包的 `usr/bin/node`，重命名而来（`<abi>` = `arm64-v8a` / `x86_64`） |
+| `app/src/main/assets/sillytavern/node-bin/<abi>/*.so` | `libc++`、`c-ares`、`libffi`、`openssl`、`libicu`、`libsqlite`、`zlib` 各包的共享库 |
+
+更新运行组件时，从 Termux 池下载与内置 Node 版本同版、对应架构的 deb 解包提取。注意 bionic 按 `DT_NEEDED` 的字面文件名搜索共享库，因此部分文件需重命名：`libicudata.so.78.3 → libicudata.so.78`、`libsqlite3.so.3.x → libsqlite3.so`、`libz.so.1.x → libz.so.1`（icu 大版本、openssl 3.x 必须与 node 构建时一致）。
 
 ---
 

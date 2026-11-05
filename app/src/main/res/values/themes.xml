@@ -1,10 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme -->
-    <style name="Theme.STPatch" parent="Theme.AppCompat.NoActionBar">
-        <item name="colorPrimary">#FF202124</item>
-        <item name="colorPrimaryDark">#FF121216</item>
-        <item name="colorAccent">#FF03DAC5</item>
+    <!-- Base application theme：Material 深色，全局统一圆角卡片观感 -->
+    <style name="Theme.STPatch" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="colorPrimary">@color/st_accent</item>
+        <item name="colorPrimaryVariant">@color/st_accent_dim</item>
+        <item name="colorOnPrimary">@color/st_on_accent</item>
+        <item name="colorSecondary">@color/st_accent</item>
+        <item name="colorSecondaryVariant">@color/st_accent_dim</item>
+        <item name="colorOnSecondary">@color/st_on_accent</item>
+        <item name="colorSurface">@color/st_card</item>
+        <item name="colorOnSurface">@color/st_text_primary</item>
+        <item name="android:colorBackground">@color/st_bg</item>
+        <item name="android:statusBarColor">@color/st_bg</item>
+        <item name="android:navigationBarColor">@color/st_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="alertDialogTheme">@style/Theme.STPatch.Dialog</item>
+        <item name="materialAlertDialogTheme">@style/Theme.STPatch.MaterialDialog</item>
     </style>
 
     <style name="Theme.STPatch.NoActionBar">
@@ -12,11 +23,11 @@
         <item name="windowNoTitle">true</item>
     </style>
 
-    <!-- 启动页主题：黑底，避免白屏闪烁 -->
+    <!-- 启动页主题：深底，避免白屏闪烁 -->
     <style name="Theme.STPatch.Splash">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
-        <item name="android:windowBackground">#202124</item>
+        <item name="android:windowBackground">@color/st_bg</item>
         <item name="android:windowFullscreen">true</item>
     </style>
 
@@ -27,6 +38,62 @@
         <item name="android:windowContentOverlay">@null</item>
     </style>
 
-    <style name="Theme.STPatch.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
-    <style name="Theme.STPatch.PopupOverlay" parent="ThemeOverlay.AppCompat.Light" />
+    <!-- 对话框：深色圆角 -->
+    <style name="Theme.STPatch.Dialog" parent="ThemeOverlay.MaterialComponents.Dialog.Alert">
+        <item name="colorPrimary">@color/st_accent</item>
+        <item name="colorSecondary">@color/st_accent</item>
+        <item name="android:windowBackground">@drawable/bg_dialog</item>
+        <item name="android:colorBackground">@color/st_dialog_bg</item>
+    </style>
+
+    <style name="Theme.STPatch.MaterialDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorPrimary">@color/st_accent</item>
+        <item name="colorSecondary">@color/st_accent</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.STPatch.Dialog</item>
+    </style>
+
+    <style name="ShapeAppearance.STPatch.Dialog" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">22dp</item>
+    </style>
+
+    <!-- ===== 控件样式 ===== -->
+    <!-- 主按钮：薄荷绿实底 -->
+    <style name="Widget.STPatch.Button.Primary" parent="Widget.MaterialComponents.Button.UnelevatedButton">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.02</item>
+        <item name="cornerRadius">14dp</item>
+        <item name="backgroundTint">@color/st_accent</item>
+        <item name="android:textColor">@color/st_on_accent</item>
+        <item name="rippleColor">@color/st_on_accent</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+    </style>
+
+    <!-- 描边按钮：次级操作 -->
+    <style name="Widget.STPatch.Button.Outlined" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:textSize">14sp</item>
+        <item name="cornerRadius">14dp</item>
+        <item name="strokeColor">@color/st_card_stroke</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:textColor">@color/st_text_primary</item>
+        <item name="rippleColor">@color/st_ripple</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+    </style>
+
+    <!-- 面色按钮：工具入口 -->
+    <style name="Widget.STPatch.Button.Tonal" parent="Widget.MaterialComponents.Button.UnelevatedButton">
+        <item name="android:textSize">14sp</item>
+        <item name="cornerRadius">14dp</item>
+        <item name="backgroundTint">@color/st_tonal</item>
+        <item name="android:textColor">@color/st_text_primary</item>
+        <item name="rippleColor">@color/st_ripple</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+    </style>
+
+    <style name="Theme.STPatch.AppBarOverlay" parent="ThemeOverlay.MaterialComponents.Dark.ActionBar" />
+    <style name="Theme.STPatch.PopupOverlay" parent="ThemeOverlay.MaterialComponents.Light" />
 </resources>

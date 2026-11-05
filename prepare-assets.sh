@@ -9,8 +9,10 @@
 #   cd <项目根目录>
 #   bash Android/prepare-assets.sh
 #
-# Node.js 二进制需手动放置到：
-#   Android/app/src/main/assets/sillytavern/node-bin/node
+# Node.js 运行组件（按 ABI）需手动放置：
+#   Android/app/src/main/jniLibs/<abi>/libnode.so     ← Termux node 二进制重命名
+#   Android/app/src/main/assets/sillytavern/node-bin/<abi>/*.so  ← Termux 共享库
+#   （abi = arm64-v8a / x86_64；来源与重命名规则见 README「运行组件来源」）
 # ============================================================
 
 set -euo pipefail
@@ -104,30 +106,35 @@ else
     exit 1
 fi
 
-# 4. 检查 Node.js 二进制
+# 4. 检查 Node.js 运行组件（按 ABI 分目录：arm64-v8a / x86_64）
 echo ""
-echo "[4/4] 检查 Node.js 二进制..."
-NODE_BIN="$ASSETS_DIR/node-bin/node"
-if [ -f "$NODE_BIN" ]; then
-    echo "  ✓ node 二进制已存在"
-else
-    echo "  ✗ node 二进制缺失！"
+echo "[4/4] 检查 Node.js 运行组件（按 ABI）..."
+REQUIRED_LIBS="libc++_shared.so libcares.so libcrypto.so.3 libffi.so libicudata.so.78 libicui18n.so.78 libicuuc.so.78 libsqlite3.so libssl.so.3 libz.so.1"
+MISSING=0
+for abi in arm64-v8a x86_64; do
+    NODE_SO="$SCRIPT_DIR/app/src/main/jniLibs/$abi/libnode.so"
+    if [ -f "$NODE_SO" ]; then
+        echo "  ✓ jniLibs/$abi/libnode.so"
+    else
+        echo "  ✗ jniLibs/$abi/libnode.so 缺失"
+        MISSING=1
+    fi
+    for lib in $REQUIRED_LIBS; do
+        if [ -f "$ASSETS_DIR/node-bin/$abi/$lib" ]; then
+            echo "  ✓ node-bin/$abi/$lib"
+        else
+            echo "  ✗ node-bin/$abi/$lib 缺失"
+            MISSING=1
+        fi
+    done
+done
+if [ "$MISSING" = "1" ]; then
     echo ""
-    echo "  请从 Termux 获取 arm64 node 二进制并放置到："
-    echo "    $NODE_BIN"
-    echo ""
-    echo "  获取方法："
-    echo "    1. 在已安装 Termux 的安卓设备上："
-    echo "       pkg install nodejs"
-    echo "       cp /data/data/com.termux/files/usr/bin/node /sdcard/Download/node"
-    echo "    2. 下载 Termux 的 nodejs 包："
-    echo "       https://packages.termux.dev/apt/termux-main/pool/main/n/nodejs/"
-    echo "       解压 dpkg -X nodejs_*.deb . 提取 usr/bin/node"
-    echo "    3. 或使用 nodejs-mobile 编译的 node："
-    echo "       https://github.com/niclas/nodejs-mobile"
-    echo ""
-    echo "  放置后设置可执行权限："
-    echo "    chmod +x $NODE_BIN"
+    echo "  获取方法：从 Termux 仓库下载对应架构的 deb 并解包："
+    echo "    https://packages.termux.dev/apt/termux-main/pool/main/"
+    echo "  nodejs 的 usr/bin/node 重命名为 libnode.so 放入 jniLibs/<abi>/；"
+    echo "  各依赖库放入 assets/sillytavern/node-bin/<abi>/"
+    echo "  （icu/sqlite/zlib 文件名需按 DT_NEEDED 重命名，规则见 README「运行组件来源」）"
 fi
 
 # 5. 把 app/ 打成 app.zip（运行时单流解压，避免 14000+ 次 AssetManager 查找）
@@ -191,15 +198,18 @@ if command -v du &> /dev/null; then
     du -sh "$ASSETS_DIR" 2>/dev/null || true
     du -sh "$ASSETS_DIR/app/" 2>/dev/null || true
     du -sh "$ASSETS_DIR/app/node_modules/" 2>/dev/null || true
-    [ -f "$NODE_BIN" ] && du -sh "$ASSETS_DIR/node-bin/" 2>/dev/null || true
+    du -sh "$ASSETS_DIR/node-bin/" 2>/dev/null || true
 fi
 
 echo ""
 echo "目录结构："
-echo "  assets/sillytavern/"
-echo "  ├── node-bin/"
-echo "  │   └── node          ← arm64 Node.js 二进制"
-echo "  └── app.zip           ← 归档后的 SillyTavern（server.js/src/public/default/node_modules）"
+echo "  app/src/main/"
+echo "  ├── jniLibs/arm64-v8a/libnode.so   ← arm64 Node.js（libnode.so = node 重命名）"
+echo "  ├── jniLibs/x86_64/libnode.so      ← x86_64 Node.js（模拟器调试用）"
+echo "  └── assets/sillytavern/"
+echo "      ├── node-bin/arm64-v8a/*.so    ← arm64 共享库依赖"
+echo "      ├── node-bin/x86_64/*.so       ← x86_64 共享库依赖"
+echo "      └── app.zip                    ← 归档后的 SillyTavern（与架构无关）"
 echo ""
 echo "现在可以用 Android Studio 或 Gradle 构建 APK："
 echo "  cd Android && ./gradlew assembleRelease"

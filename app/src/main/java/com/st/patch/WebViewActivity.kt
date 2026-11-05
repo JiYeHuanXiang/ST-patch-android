@@ -2,7 +2,7 @@
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
+import androidx.appcompat.app.AlertDialog
 import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
@@ -48,6 +48,7 @@ class WebViewActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private lateinit var loadingText: TextView
+    private lateinit var loadingContainer: View
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val FILE_CHOOSER_REQUEST_CODE = 10001
 
@@ -82,8 +83,8 @@ class WebViewActivity : AppCompatActivity() {
 
     private fun hideLoadingUi() {
         mainHandler.removeCallbacks(readyStateRunnable)
-        if (progressBar.visibility != View.GONE) progressBar.visibility = View.GONE
-        if (loadingText.visibility != View.GONE) loadingText.visibility = View.GONE
+        // 整卡隐藏：卡片含 app 图标背景，只藏进度条/文字会留下图标悬浮在页面中央
+        if (loadingContainer.visibility != View.GONE) loadingContainer.visibility = View.GONE
     }
 
     /**
@@ -92,6 +93,7 @@ class WebViewActivity : AppCompatActivity() {
      */
     private fun reloadWebView() {
         // 重新显示 native loading，随后重新加载
+        loadingContainer.visibility = View.VISIBLE
         progressBar.visibility = View.VISIBLE
         progressBar.progress = 0
         loadingText.visibility = View.VISIBLE
@@ -114,6 +116,7 @@ class WebViewActivity : AppCompatActivity() {
         webView = findViewById(R.id.webView)
         progressBar = findViewById(R.id.progressBar)
         loadingText = findViewById(R.id.loadingText)
+        loadingContainer = findViewById(R.id.loadingContainer)
 
         // 核心修复：监听 IME (键盘) insets 变化，键盘弹出时压缩 WebView 底部可用空间，
         // 从而 WebView 内部 CSS 100vh 重新计算，输入框自然上抬。
@@ -248,9 +251,8 @@ class WebViewActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // 页面加载完成后隐藏加载指示器
-                progressBar.visibility = View.GONE
-                loadingText.visibility = View.GONE
+                // 页面加载完成后隐藏整个加载卡片（图标+进度条+文字）
+                hideLoadingUi()
 
                 // 注入 viewport 修复 JS + 文件导出桥接 JS
                 view?.evaluateJavascript("""
@@ -365,6 +367,7 @@ class WebViewActivity : AppCompatActivity() {
                     // 进度到 100 一定隐藏（与 onPageFinished / readyState 兜底三重保险）
                     hideLoadingUi()
                 } else {
+                    loadingContainer.visibility = View.VISIBLE
                     progressBar.visibility = View.VISIBLE
                     progressBar.progress = newProgress
                     loadingText.visibility = View.VISIBLE

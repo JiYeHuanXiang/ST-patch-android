@@ -123,11 +123,12 @@ class NodeService : Service() {
                     "1.0"
                 }
 
-                // 0. 检测 CPU 架构
-                val arch = Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"
-                Log.i(TAG, "Device ABI: $arch")
-                if (!arch.contains("arm64", true) && !arch.contains("aarch64", true)) {
-                    lastErrorPublic = "不支持的CPU架构: $arch\n需要 arm64-v8a 设备"
+                // 0. 检测 CPU 架构：按 SUPPORTED_ABIS 优先级取首个受支持 ABI
+                //    （arm64 真机与 x86_64 模拟器均可跑，运行组件在 assets 里按 ABI 分目录）
+                Log.i(TAG, "Device ABIs: ${Build.SUPPORTED_ABIS.joinToString()}")
+                val nativeAbi = Build.SUPPORTED_ABIS.firstOrNull { it == "arm64-v8a" || it == "x86_64" }
+                if (nativeAbi == null) {
+                    lastErrorPublic = "不支持的CPU架构: ${Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"}\n需要 arm64-v8a 或 x86_64 设备"
                     Log.e(TAG, lastErrorPublic)
                     updateNotification(lastErrorPublic)
                     sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
@@ -147,21 +148,6 @@ class NodeService : Service() {
                         updateNotification(lastErrorPublic)
                         sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
                         return@thread
-                    }
-                    // 影子同样用 app 自带 libnode.so，其依赖的 .so 需落盘
-                    // （用户可能从未跑过「启动」模式，node-bin 尚未解压）
-                    val soCheck = File(filesDir, "sillytavern/node-bin")
-                    if (!soCheck.isDirectory || soCheck.listFiles().isNullOrEmpty()) {
-                        updateNotification("正在准备运行组件...")
-                        try {
-                            ExtractAssets(this).extractResources("sillytavern/node-bin")
-                        } catch (e: Exception) {
-                            lastErrorPublic = "运行组件解压失败: ${e.message}"
-                            Log.e(TAG, lastErrorPublic, e)
-                            updateNotification(lastErrorPublic)
-                            sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
-                            return@thread
-                        }
                     }
                 } else {
                     val sillyDir = File(filesDir, "sillytavern")
@@ -183,8 +169,7 @@ class NodeService : Service() {
                             extractAssets.extractZipArchive(
                                 "sillytavern/app.zip", sillyDir
                             )
-                            // node-bin/ 数量少，仍走散件解压
-                            extractAssets.extractResources("sillytavern/node-bin")
+                            // node-bin（.so 运行组件）不在此处：与 ABI 相关，下方统一按 ABI 解压
                         } catch (e: Exception) {
                             // 解压失败：写明错误并广播失败，绝不带半状态启动 Node
                             lastErrorPublic = "资源解压失败: ${e.message}"
@@ -202,6 +187,38 @@ class NodeService : Service() {
                     }
                 }
 
+                // 1.5 node-bin（.so 运行组件）按 ABI 独立解压：
+                //     assets/sillytavern/node-bin/<abi> → filesDir/sillytavern/node-bin/<abi>。
+                //     独立标记（版本|ABI）判断是否重解：升级、换设备架构（真机↔模拟器）、
+                //     或旧版平铺布局（.so 直接堆在 node-bin 根下）都会触发；成功后清理平铺残留。
+                //     影子模式同样走这里（用户可能从未跑过「启动」模式）。
+                val nodeBinRoot = File(filesDir, "sillytavern/node-bin")
+                val soDir = File(nodeBinRoot, nativeAbi)
+                val nodeBinMarker = File(filesDir, "sillytavern/.nodebin_version")
+                val nodeBinExpected = "$appVersion|$nativeAbi"
+                val nodeBinReady = soDir.isDirectory && !soDir.listFiles().isNullOrEmpty()
+                        && nodeBinMarker.exists() && nodeBinMarker.readText().trim() == nodeBinExpected
+                if (!nodeBinReady) {
+                    updateNotification("正在准备运行组件...")
+                    try {
+                        ExtractAssets(this).extractResources("sillytavern/node-bin/$nativeAbi")
+                        // 旧版布局残留：node-bin 根下的平铺 .so 已不再被引用，清理省空间
+                        nodeBinRoot.listFiles()?.forEach { f ->
+                            if (f.isFile && (f.name.endsWith(".so") || f.name.contains(".so."))) f.delete()
+                        }
+                        if (!soDir.isDirectory || soDir.listFiles().isNullOrEmpty()) {
+                            throw IllegalStateException("解压后 node-bin/$nativeAbi 仍为空")
+                        }
+                        nodeBinMarker.writeText(nodeBinExpected)
+                    } catch (e: Exception) {
+                        lastErrorPublic = "运行组件解压失败: ${e.message}"
+                        Log.e(TAG, lastErrorPublic, e)
+                        updateNotification(lastErrorPublic)
+                        sendBroadcast(Intent(BROADCAST_SERVER_FAILED))
+                        return@thread
+                    }
+                }
+
                 // node 已作为 libnode.so 打包进 jniLibs，系统自动安装到 nativeLibraryDir（可执行）
                 val nativeLibDir = File(applicationInfo.nativeLibraryDir)
                 val nodeBin = File(nativeLibDir, "libnode.so")
@@ -214,8 +231,7 @@ class NodeService : Service() {
                 }
                 nodeBin.setExecutable(true, false)
 
-                // .so 留在 filesDir（只读即可，LD_LIBRARY_PATH 会指向这里）
-                val soDir = File(filesDir, "sillytavern/node-bin")
+                // .so 依赖留在 filesDir/node-bin/<abi>（只读即可，LD_LIBRARY_PATH 指向这里）
                 soDir.listFiles()?.forEach { lib ->
                     if (lib.name.endsWith(".so") || lib.name.contains(".so.")) {
                         lib.setReadable(true, false)

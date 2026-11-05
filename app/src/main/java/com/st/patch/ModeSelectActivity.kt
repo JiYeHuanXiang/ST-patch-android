@@ -1,6 +1,6 @@
 package com.st.patch
 
-import android.app.AlertDialog
+import androidx.appcompat.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.transition.TransitionManager
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
@@ -69,12 +70,14 @@ class ModeSelectActivity : AppCompatActivity() {
         }
     }
 
-    /** 卡片展开/收起 */
+    /** 卡片展开/收起（带过渡动画） */
     private fun setupCard(headerId: Int, detailId: Int, hintId: Int) {
         val header = findViewById<LinearLayout>(headerId)
         val detail = findViewById<LinearLayout>(detailId)
         val hint = findViewById<TextView>(hintId)
         header.setOnClickListener {
+            val parent = detail.parent as android.view.ViewGroup
+            TransitionManager.beginDelayedTransition(parent)
             if (detail.visibility == View.VISIBLE) {
                 detail.visibility = View.GONE
                 hint.text = "展开 ▼"

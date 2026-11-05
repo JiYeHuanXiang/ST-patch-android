@@ -3,8 +3,10 @@
 #
 # Usage:  powershell -ExecutionPolicy Bypass -File Android\prepare-assets.ps1
 #
-# Node.js arm64 binary must be manually placed at:
-#   Android\app\src\main\assets\sillytavern\node-bin\node
+# Node.js runtime components (per ABI) must be manually placed at:
+#   Android\app\src\main\jniLibs\<abi>\libnode.so                  <- Termux node binary, renamed
+#   Android\app\src\main\assets\sillytavern\node-bin\<abi>\*.so    <- Termux shared libraries
+#   (abi = arm64-v8a / x86_64; sources & rename rules see README)
 
 param(
     [string]$SourceRoot
@@ -132,11 +134,10 @@ else {
     exit 1
 }
 
-# 4. Check Node.js binary and shared libraries
+# 4. Check Node.js runtime components (per-ABI: arm64-v8a / x86_64)
 Write-Host ""
-Write-Host "[4/4] Checking Node.js binary and Termux shared libraries..."
+Write-Host "[4/4] Checking Node.js runtime components (per ABI)..."
 
-$nodeBin = Join-Path $AssetsDir "node-bin\node"
 $requiredLibs = @(
     "libc++_shared.so",
     "libcares.so",
@@ -152,45 +153,43 @@ $requiredLibs = @(
 
 $missingLibs = @()
 
-if (Test-Path $nodeBin) {
-    $nodeSize = [math]::Round((Get-Item $nodeBin).Length / 1MB, 1)
-    Write-Host "  Found: node binary ($nodeSize MB)" -ForegroundColor Green
-}
-else {
-    Write-Host "  MISSING: node binary" -ForegroundColor Red
-    $missingLibs += "node"
-}
-
-foreach ($lib in $requiredLibs) {
-    $libPath = Join-Path $AssetsDir "node-bin\$lib"
-    if (Test-Path $libPath) {
-        $libSize = [math]::Round((Get-Item $libPath).Length / 1KB, 0)
-        Write-Host "  Found: $lib ($libSize KB)" -ForegroundColor Green
+foreach ($abi in @("arm64-v8a", "x86_64")) {
+    $nodeSo = Join-Path $ScriptDir "app\src\main\jniLibs\$abi\libnode.so"
+    if (Test-Path $nodeSo) {
+        $nodeSize = [math]::Round((Get-Item $nodeSo).Length / 1MB, 1)
+        Write-Host "  Found: jniLibs/$abi/libnode.so ($nodeSize MB)" -ForegroundColor Green
     }
     else {
-        Write-Host "  MISSING: $lib" -ForegroundColor Red
-        $missingLibs += $lib
+        Write-Host "  MISSING: jniLibs/$abi/libnode.so" -ForegroundColor Red
+        $missingLibs += "jniLibs/$abi/libnode.so"
+    }
+
+    foreach ($lib in $requiredLibs) {
+        $libPath = Join-Path $AssetsDir "node-bin\$abi\$lib"
+        if (Test-Path $libPath) {
+            $libSize = [math]::Round((Get-Item $libPath).Length / 1KB, 0)
+            Write-Host "  Found: node-bin/$abi/$lib ($libSize KB)" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  MISSING: node-bin/$abi/$lib" -ForegroundColor Red
+            $missingLibs += "node-bin/$abi/$lib"
+        }
     }
 }
 
 if ($missingLibs.Count -gt 0) {
     Write-Host ""
-    Write-Host "  === HOW TO GET MISSING FILES FROM TERMUX ===" -ForegroundColor Yellow
+    Write-Host "  === HOW TO GET MISSING FILES ===" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  On your Termux device, run these commands to copy files to /sdcard/Download/:"
+    Write-Host "  Download the matching-arch debs from the Termux pool and unpack them:"
     Write-Host ""
-    Write-Host "    mkdir -p /sdcard/Download/node-libs"
-    Write-Host "    cp /data/data/com.termux/files/usr/bin/node /sdcard/Download/node-libs/"
-    Write-Host "    for lib in libc++_shared.so libcares.so libcrypto.so.3 libffi.so libicui18n.so.78 libicuuc.so.78 libsqlite3.so libssl.so.3 libz.so.1; do"
-    Write-Host "      cp /data/data/com.termux/files/usr/lib/`$lib /sdcard/Download/node-libs/"
-    Write-Host "    done"
+    Write-Host "    https://packages.termux.dev/apt/termux-main/pool/main/"
     Write-Host ""
-    Write-Host "  Then transfer all files from /sdcard/Download/node-libs/ to:"
-    Write-Host "    $AssetsDir\node-bin\"
-    Write-Host ""
-    Write-Host "  Or use adb:"
-    Write-Host "    adb pull /sdcard/Download/node-libs/ ."
-    Write-Host "    Copy all files into $AssetsDir\node-bin\"
+    Write-Host "  - nodejs: usr/bin/node -> rename to libnode.so -> jniLibs\<abi>\"
+    Write-Host "  - libc++, c-ares, libffi, openssl, libicu, libsqlite, zlib:"
+    Write-Host "      usr/lib/*.so* -> assets\sillytavern\node-bin\<abi>\"
+    Write-Host "      (icu/sqlite/zlib filenames must match the sonames the node binary needs;"
+    Write-Host "       e.g. libicudata.so.78.3 -> libicudata.so.78, libsqlite3.so.3.x -> libsqlite3.so)"
 }
 
 # 5. Archive app/ into app.zip (single-stream extraction at runtime avoids 14000+ AssetManager lookups)
@@ -255,19 +254,13 @@ Write-Host ""
 Write-Host "Total size: $totalSize MB"
 Write-Host ""
 Write-Host "Directory structure:"
+Write-Host "  app/src/main/"
+Write-Host "    jniLibs/arm64-v8a/libnode.so   <-- arm64 Node.js binary (node renamed)"
+Write-Host "    jniLibs/x86_64/libnode.so      <-- x86_64 Node.js binary (emulator debugging)"
 Write-Host "  assets/sillytavern/"
-Write-Host "    node-bin/"
-Write-Host "      node            <-- arm64 Node.js binary"
-Write-Host "      libc++_shared.so  <-- Termux shared libraries"
-Write-Host "      libcares.so"
-Write-Host "      libcrypto.so.3"
-Write-Host "      libssl.so.3"
-Write-Host "      libicui18n.so.78"
-Write-Host "      libicuuc.so.78"
-Write-Host "      libsqlite3.so"
-Write-Host "      libffi.so"
-Write-Host "      libz.so.1"
-Write-Host "    app.zip           <-- archived SillyTavern (server.js/src/public/default/node_modules)"
+Write-Host "    node-bin/arm64-v8a/*.so        <-- arm64 Termux shared libraries"
+Write-Host "    node-bin/x86_64/*.so           <-- x86_64 Termux shared libraries"
+Write-Host "    app.zip                        <-- archived SillyTavern (arch-independent)"
 Write-Host ""
 Write-Host "Build APK with:"
 Write-Host "  cd Android; .\gradlew.bat assembleRelease"

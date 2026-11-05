@@ -1,8 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- 夜间模式变体：在深色基础上进一步降低亮度 -->
-    <style name="Theme.STPatch" parent="Theme.AppCompat.NoActionBar">
-        <item name="colorPrimary">@color/st_background_dark</item>
-        <item name="colorPrimaryDark">#FF0A0A0D</item>
-        <item name="colorAccent">@color/st_accent</item>
+    <!-- 夜间模式：应用为纯深色设计，与日间保持一致 -->
+    <style name="Theme.STPatch" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="colorPrimary">@color/st_accent</item>
+        <item name="colorPrimaryVariant">@color/st_accent_dim</item>
+        <item name="colorOnPrimary">@color/st_on_accent</item>
+        <item name="colorSecondary">@color/st_accent</item>
+        <item name="colorSecondaryVariant">@color/st_accent_dim</item>
+        <item name="colorOnSecondary">@color/st_on_accent</item>
+        <item name="colorSurface">@color/st_card</item>
+        <item name="colorOnSurface">@color/st_text_primary</item>
+        <item name="android:colorBackground">@color/st_bg</item>
+        <item name="android:statusBarColor">@color/st_bg</item>
+        <item name="android:navigationBarColor">@color/st_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="alertDialogTheme">@style/Theme.STPatch.Dialog</item>
+        <item name="materialAlertDialogTheme">@style/Theme.STPatch.MaterialDialog</item>
     </style>
 </resources>

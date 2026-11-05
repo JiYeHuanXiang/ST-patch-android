@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 基底：自上而下的深色渐变 -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="@color/st_bg_gradient_top"
+                android:endColor="@color/st_bg_gradient_bottom" />
+        </shape>
+    </item>
+    <!-- 顶部薄荷绿微光，增加层次 -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.5"
+                android:centerY="0.0"
+                android:gradientRadius="420dp"
+                android:startColor="#2217D1A6"
+                android:endColor="#0017D1A6" />
+        </shape>
+    </item>
+</layer-list>
